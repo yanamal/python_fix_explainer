@@ -1,12 +1,26 @@
 import copy
 import string
 import random
+from uuid import uuid4
 
 import astor.code_gen as cg
 import astor
 import ast
 import multiprocessing
 from xml.etree.ElementTree import Element, SubElement, ElementTree
+
+
+# Class and helper functions for manipulable AST entities: wrapper around Python ASTs so that they can be:
+#  1. manipulated using a specific set of edits
+#  2. translated to a human-readable form (usally Python code, or failing that, node description)
+
+
+# Several types of strings can be generated from a given tree:
+# - one emphasizes being able to generate bytecode from resulting code,
+# - the other emphasizes literally representing the original code (e.g. no inserting dummy values).
+
+# The native python ast is updated during the manipulations to match the ManipulableAst object.
+
 
 # TODO: try to prevent (mid-change-state) modification of "x in y" to "x in z is not y"?
 
@@ -272,7 +286,7 @@ class ManipulableAst:
     # (3) makes structural tweaks to make AST comparison give more sensible results,
     # (4) allows for changing the AST (and makes corresponding changes to the underlying Python AST)
     # (5) allows for execution of a manipulated AST
-    def __init__(self, py_ast, start_index=0, shallow=False, name=None, assign_depth=None):
+    def __init__(self, py_ast, shallow=False, name=None, assign_depth=None):
         # a passed-in chunk of python AST could be one of three things:
         # (1) an actual AST node
         # (2) a 'leaf' literal - e.g. string representing the name of the variable
@@ -304,19 +318,20 @@ class ManipulableAst:
             assign_depth = 0
         self.assign_depth = assign_depth
 
-        next_index = start_index
+        # next_index = start_index
         next_assign_depth = (assign_depth + 1) if (assign_depth is not None) else None
 
         self.children_dict = {}
         if not shallow:
             for c_key, c_ast in ast_children(py_ast).items():
                 if c_key in ignore_children:
-                    # skip 'op' children because we are "pulling them up" to the name of this node.
+                    # skip certain children (e.g. op type in binary operation node)
+                    # because we are "pulling them up" to the name of this node.
                     continue
-                c_manip = ManipulableAst(c_ast, start_index=next_index, assign_depth=next_assign_depth)
+                c_manip = ManipulableAst(c_ast, assign_depth=next_assign_depth)
                 c_manip.set_parent(self, c_key)
                 self.children_dict[c_key] = c_manip
-                next_index = c_manip.index + 1  # assume that the root of a subtree always gets the last index
+                # next_index = c_manip.index + 1  # assume that the root of a subtree always gets the last index
 
         if shallow:
             # if shallow, "empty out" self.ast so it also has no children.
@@ -330,9 +345,9 @@ class ManipulableAst:
         if name is not None:
             self.name = name
 
-        self.index = next_index  # finally, assign index to this node
+        self.index = str(uuid4())  # finally, assign index to this node
 
-        self.num_children = self.index - start_index
+        # self.num_children = self.index - start_index  # TODO (if needed?)
 
     def set_parent(self, parent, key):
         # Set the parent on an existing tree node (called as part of parent's init)
@@ -387,6 +402,10 @@ class ManipulableAst:
         return ignore_children
 
     @property
+    def short_index(self):
+        return self.index.split('-')[-1]
+
+    @property
     def children(self):
         # return list of children in key-alphabetical order (for comparisons by APTED)
         return [ self.children_dict[c_key] for c_key in sorted(self.children_dict.keys()) ]
@@ -439,20 +458,20 @@ class ManipulableAst:
                 return [False for test in unit_test_strings]
 
     def generate_dot_notation(self, tree_name):
-        root_id = tree_name + str(self.index)
+        root_id = tree_name + self.short_index
         color_string = ''
         if hasattr(self, 'color'):
             color_string = f',color="{self.color}"'
-        dot_string = dot_string = f'{root_id} [label="{self.index} {self.name}"{color_string}];\n'
+        dot_string = f'{root_id} [label="{self.name}"{color_string}];\n'
         for child_i in self.children_dict:
             child = self.children_dict[child_i]
-            child_id = tree_name + str(child.index)
+            child_id = tree_name + child.short_index
             dot_string += child.generate_dot_notation(tree_name)
             dot_string += f'{root_id} -> {child_id} [label="{child_i}"];\n'  # [label="Some Label"]
         return dot_string
 
     def write_dot_file(self, tree_name, filename: str):
-        with open(f'out/{filename}', 'w') as f:
+        with open(f'{filename}', 'w') as f:
             f.write(f'''
                         digraph G
                         {{
@@ -483,7 +502,7 @@ class ManipulableAst:
         return my_elem
 
     def generate_xml_file_for_gumtree(self, filename):
-        return ElementTree(self.generate_xml_for_gumtree()).write(f'out/{filename}')
+        return ElementTree(self.generate_xml_for_gumtree()).write(f'{filename}')
 
     ### Tree Manipulation functions: ###
 
