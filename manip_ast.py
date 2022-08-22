@@ -1,15 +1,3 @@
-import copy
-import string
-import random
-from uuid import uuid4
-
-import astor.code_gen as cg
-import astor
-import ast
-import multiprocessing
-from xml.etree.ElementTree import Element, SubElement, ElementTree
-
-
 # Class and helper functions for manipulable AST entities: wrapper around Python ASTs so that they can be:
 #  1. manipulated using a specific set of edits
 #  2. translated to a human-readable form (usally Python code, or failing that, node description)
@@ -20,6 +8,17 @@ from xml.etree.ElementTree import Element, SubElement, ElementTree
 # - the other emphasizes literally representing the original code (e.g. no inserting dummy values).
 
 # The native python ast is updated during the manipulations to match the ManipulableAst object.
+
+import copy
+import string
+import random
+from uuid import uuid4
+
+import astor.code_gen as cg
+import astor
+import ast
+import multiprocessing
+from xml.etree.ElementTree import Element, SubElement, ElementTree
 
 
 # TODO: try to prevent (mid-change-state) modification of "x in y" to "x in z is not y"?
@@ -286,7 +285,7 @@ class ManipulableAst:
     # (3) makes structural tweaks to make AST comparison give more sensible results,
     # (4) allows for changing the AST (and makes corresponding changes to the underlying Python AST)
     # (5) allows for execution of a manipulated AST
-    def __init__(self, py_ast, shallow=False, name=None, assign_depth=None):
+    def __init__(self, py_ast, node_index=None, shallow=False, name=None, assign_depth=None):
         # a passed-in chunk of python AST could be one of three things:
         # (1) an actual AST node
         # (2) a 'leaf' literal - e.g. string representing the name of the variable
@@ -345,7 +344,10 @@ class ManipulableAst:
         if name is not None:
             self.name = name
 
-        self.index = str(uuid4())  # finally, assign index to this node
+        # finally, assign index to this node
+        # use node_index if provided (e.g. for making shallow copie of node)
+        # TODO: only allow if actually making a shallow node?..
+        self.index = node_index if node_index else str(uuid4())
 
         # self.num_children = self.index - start_index  # TODO (if needed?)
 
@@ -401,9 +403,13 @@ class ManipulableAst:
 
         return ignore_children
 
+    @staticmethod
+    def gen_short_index(long_index):
+        return long_index.split('-')[-1]
+
     @property
     def short_index(self):
-        return self.index.split('-')[-1]
+        return self.gen_short_index(self.index)
 
     @property
     def children(self):
@@ -655,6 +661,8 @@ class ManipulableAst:
         return before_node, after_node
 
 
+# TODO: use edit struct once it exists
+# TODO: does this belong with edit script/edit object logic?..
 def apply_edit(edit_dict, index_to_node, nonleaf_OK=False):
     # apply edit described in edit_dict, translating node indices to actual nodes using index_to_node
     # insert/delete of entire subtrees (non-leaves) only allowed if subtree_OK is True.
