@@ -21,6 +21,10 @@ import multiprocessing
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 
 
+class ForbiddenEditException(Exception):
+    pass
+
+
 # TODO: try to prevent (mid-change-state) modification of "x in y" to "x in z is not y"?
 
 # Special cases where a child node's default (blank) value is ambiguous, and depends on parent type
@@ -29,10 +33,6 @@ extra_special_cases = {
     'If.orelse': [],
     'IfExp.orelse': None
 }
-
-
-class ForbiddenEditException(Exception):
-    pass
 
 
 # extend astor's source-from-ast generator to fix a couple of problems with manipulating AST
@@ -520,7 +520,7 @@ class ManipulableAst:
         else:
             setattr(self.ast, key, child_ast)
 
-    def update(self, new_node):
+    def update(self, new_node: 'ManipulableAst'):
         # update contents of the node to match new_node, keeping/transferring all the same children.
 
         if self.isList:
@@ -659,44 +659,6 @@ class ManipulableAst:
         before_node = self.children_dict.get(child_i-1, None)
         after_node = self.children_dict.get(child_i+1, None)
         return before_node, after_node
-
-
-# TODO: use edit struct once it exists
-# TODO: does this belong with edit script/edit object logic?..
-def apply_edit(edit_dict, index_to_node, nonleaf_OK=False):
-    # apply edit described in edit_dict, translating node indices to actual nodes using index_to_node
-    # insert/delete of entire subtrees (non-leaves) only allowed if subtree_OK is True.
-    node = index_to_node[edit_dict['node']]
-    if edit_dict['action'] == 'update':
-        # update: change the contents of node to match some new node
-        new_node = index_to_node[edit_dict['new_node']]
-        return node.update(new_node)
-    elif edit_dict['action'] == 'delete':
-        # delete this node from its parent
-        if not nonleaf_OK and len(node.children) > 0:
-            raise ForbiddenEditException(f'Trying to delete node {node.index} with children')
-        return node.parent.remove_child(node)
-    elif edit_dict['action'] == 'insert':
-        # insert given node; use insert function appropriate for parent node type.
-        if not nonleaf_OK and len(node.children) > 0:
-            raise ForbiddenEditException(f'Trying to insert node {node.index} with children')
-        parent = index_to_node[edit_dict['parent']]
-        if 'key' not in edit_dict:  # parent.isList:
-            before = index_to_node[edit_dict['before']] if edit_dict['before'] else None
-            after = index_to_node[edit_dict['after']] if edit_dict['after'] else None
-            return parent.add_child_between(before, after, node)
-        else:
-            return parent.add_child_at_key(node, edit_dict['key'])
-    elif edit_dict['action'] == 'move':
-        # align = move = delete+insert
-        # deleting/inserting non-leaf subtrees is allowed in this case, since we are actually moving one chunk of code.
-        delete_edit = edit_dict.copy()
-        delete_edit['action'] = 'delete'
-        apply_edit(delete_edit, index_to_node, nonleaf_OK=True)
-
-        insert_edit = edit_dict.copy()
-        insert_edit['action'] = 'insert'
-        return apply_edit(insert_edit, index_to_node, nonleaf_OK=True)
 
 
 def breadth_first(tree: ManipulableAst):

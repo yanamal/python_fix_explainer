@@ -1,15 +1,11 @@
-# Logic for creating a mapping between two ManipulableAst objects
+# Logic for creating a "good" mapping between two ManipulableAst objects
+# The mapping mostly tries to optimize for a shorter resulting edit script,
+# though there are some heuristics in place to create map more "related" parts of the code together.
 
-import time
-from collections import defaultdict
-
-import networkx as nx
-
-import manip_ast
+from manip_ast import ManipulableAst
 import ast
 import copy
 from apted import APTED, Config
-from difflib import SequenceMatcher
 
 
 class CompareConfig(Config):
@@ -55,7 +51,7 @@ class CompareConfig(Config):
         return float(base_cost)
 
 
-def _generate_subtrees(tree: manip_ast.ManipulableAst, exclude_set):
+def _generate_subtrees(tree: ManipulableAst, exclude_set):
     # Generate a ManipulableAst which contains a subset of the nodes in tree:
     # include all nodes except those in exclude_set.
     # if a node is in exclude_set, skip it and move its children to its parent.
@@ -69,16 +65,19 @@ def _generate_subtrees(tree: manip_ast.ManipulableAst, exclude_set):
     else:
         # we should keep this node
         # make shallow copy of node, add subtrees generated from children
-        # TODO: is this deepcopy necessary? (shallow ManipulableAst prunes the ast's children anyway)
-        new_node = manip_ast.ManipulableAst(copy.deepcopy(tree.ast), tree.index, shallow=True, name=tree.name)
+
+        # deepcopy of the underlying Python AST ensures that we don't mess up the original underlying tree
+        # (e.g. when cutting off children to make the copy shallow)
+        new_node = ManipulableAst(copy.deepcopy(tree.ast), tree.index, shallow=True, name=tree.name)
         # retain name of old node.
         for new_c in child_subtrees:
+            # TODO: is this deepcopy necessary? orr will all the underlying children be copied by now anyway?
             new_node.add_child_anywhere(copy.deepcopy(new_c))
         return [new_node]  # return list for consistency
 
 
-def _generate_unmapped_subtrees(source_tree: manip_ast.ManipulableAst,
-                                dest_tree: manip_ast.ManipulableAst,
+def _generate_unmapped_subtrees(source_tree: ManipulableAst,
+                                dest_tree: ManipulableAst,
                                 node_mapping: list):
     # Generate subtrees of both source_tree and dest_tree
     # which consist only of nodes that aren't mapped to each other in node_mapping.
@@ -87,9 +86,9 @@ def _generate_unmapped_subtrees(source_tree: manip_ast.ManipulableAst,
 
     # Make new fake root nodes,
     # set a special FakeRoot type to make sure they are mapped to each other (not some arbitrary NodeList)
-    source_root = manip_ast.ManipulableAst([], source_tree.index, shallow=True, name='FakeRoot')
+    source_root = ManipulableAst([], source_tree.index, shallow=True, name='FakeRoot')
     source_root.nodeType = 'FakeRoot'
-    dest_root = manip_ast.ManipulableAst([], dest_tree.index, shallow=True, name='FakeRoot')
+    dest_root = ManipulableAst([], dest_tree.index, shallow=True, name='FakeRoot')
     dest_root.nodeType = 'FakeRoot'
 
     source_children = _generate_subtrees(source_tree, set(source_mapped))
@@ -105,7 +104,8 @@ def _generate_unmapped_subtrees(source_tree: manip_ast.ManipulableAst,
     return source_root, dest_root
 
 
-def generate_mapping(source_tree: manip_ast.ManipulableAst, dest_tree: manip_ast.ManipulableAst):
+def generate_mapping(source_tree: ManipulableAst, dest_tree: ManipulableAst):
+    # generate mapping between the two trees, represented as a set of pairs of mapped nodes.
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
     should_continue = True
@@ -153,8 +153,8 @@ def draw_comparison(source_tree, dest_tree, index_mapping, filename='out/test.do
     map_edges = ''
     for s_i, c_i in index_mapping:
         if (s_i is not None) and (c_i is not None):
-            map_edges += f'source{manip_ast.ManipulableAst.gen_short_index(s_i)} -> ' \
-                         f'dest{manip_ast.ManipulableAst.gen_short_index(c_i)}\n'
+            map_edges += f'source{ManipulableAst.gen_short_index(s_i)} -> ' \
+                         f'dest{ManipulableAst.gen_short_index(c_i)}\n'
 
     with open(f'{filename}', 'w') as f:
         f.write(f'''
@@ -181,9 +181,9 @@ def draw_comparison(source_tree, dest_tree, index_mapping, filename='out/test.do
 
 
 def get_trees_and_mapping(source_text, dest_text):
-    source_tree = manip_ast.ManipulableAst(ast.parse(source_text))
+    source_tree = ManipulableAst(ast.parse(source_text))
     # make sure dest indices are distinct from source indices:
-    dest_tree = manip_ast.ManipulableAst(ast.parse(dest_text))
+    dest_tree = ManipulableAst(ast.parse(dest_text))
 
     index_mapping = generate_mapping(source_tree, dest_tree)
 
