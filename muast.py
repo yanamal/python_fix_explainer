@@ -7,7 +7,7 @@
 # - one emphasizes being able to generate bytecode from resulting code,
 # - the other emphasizes literally representing the original code (e.g. no inserting dummy values).
 
-# The native python ast is updated during the manipulations to match the ManipulableAst object.
+# The native python ast is updated during the manipulations to match the MutableAst object.
 
 import copy
 import string
@@ -19,6 +19,11 @@ import astor
 import ast
 import multiprocessing
 from xml.etree.ElementTree import Element, SubElement, ElementTree
+
+
+# Utility - canonicalize code
+def canonical_code(code_str):
+    return astor.to_source(ast.parse(code_str))
 
 
 class ForbiddenEditException(Exception):
@@ -274,11 +279,11 @@ def remove_ast_child(ast_node, child_key):
     setattr(ast_node, child_key, placeholder)
 
 
-class ManipulableAst:
+class MutableAst:
     # TODO: separate out List subclass instead of using isList?.. probably would have to have abstract class then?
     #  would it even be possible to have an agnostic constructor?.. does it matter?..
-    #  (probably could make AbstractManipulableAst, etc.
-    #  and ManipulableAst is just a wrapper which decides whether it's a list)
+    #  (probably could make AbstractMutableAst, etc.
+    #  and MutableAst is just a wrapper which decides whether it's a list)
     # A wrapper class for python ASTs which:
     # (1) plays well with APTED library,
     # (2) generates unique (within tree) indices for nodes to make tracking nodes easier,
@@ -317,7 +322,6 @@ class ManipulableAst:
             assign_depth = 0
         self.assign_depth = assign_depth
 
-        # next_index = start_index
         next_assign_depth = (assign_depth + 1) if (assign_depth is not None) else None
 
         self.children_dict = {}
@@ -327,10 +331,9 @@ class ManipulableAst:
                     # skip certain children (e.g. op type in binary operation node)
                     # because we are "pulling them up" to the name of this node.
                     continue
-                c_manip = ManipulableAst(c_ast, assign_depth=next_assign_depth)
+                c_manip = MutableAst(c_ast, assign_depth=next_assign_depth)
                 c_manip.set_parent(self, c_key)
                 self.children_dict[c_key] = c_manip
-                # next_index = c_manip.index + 1  # assume that the root of a subtree always gets the last index
 
         if shallow:
             # if shallow, "empty out" self.ast so it also has no children.
@@ -349,7 +352,7 @@ class ManipulableAst:
         # TODO: only allow if actually making a shallow node?..
         self.index = node_index if node_index else str(uuid4())
 
-        # self.num_children = self.index - start_index  # TODO (if needed?)
+        # TODO: calculated self.num_children (if needed?)
 
     def set_parent(self, parent, key):
         # Set the parent on an existing tree node (called as part of parent's init)
@@ -520,7 +523,7 @@ class ManipulableAst:
         else:
             setattr(self.ast, key, child_ast)
 
-    def update(self, new_node: 'ManipulableAst'):
+    def update(self, new_node: 'MutableAst'):
         # update contents of the node to match new_node, keeping/transferring all the same children.
 
         if self.isList:
@@ -559,7 +562,7 @@ class ManipulableAst:
                 # the underlying ast is a list, and the key is the index in the list.
                 self.ast.pop(c_key)
                 # redo dict keys manually - doesn't seem to be a great alternative,
-                # since we have ManipulableAst nodes that are only linked through this dict.
+                # since we have MutableAst nodes that are only linked through this dict.
                 new_cdict = {}
                 for i in self.children_dict:
                     new_i = i
@@ -661,7 +664,7 @@ class ManipulableAst:
         return before_node, after_node
 
 
-def breadth_first(tree: ManipulableAst):
+def breadth_first(tree: MutableAst):
     # traverse given tree object in breadth-first order
     queue = [tree]
     while len(queue) > 0:
@@ -670,7 +673,7 @@ def breadth_first(tree: ManipulableAst):
         yield node
 
 
-def depth_first(tree: ManipulableAst):
+def depth_first(tree: MutableAst):
     # traverse given tree object in breadth-first order
     queue = [tree]
     while len(queue) > 0:
@@ -679,7 +682,7 @@ def depth_first(tree: ManipulableAst):
         yield node
 
 
-def postorder(tree: ManipulableAst):
+def postorder(tree: MutableAst):
     # traverse given tree object in postorder (children before their parent)
     for c in reversed(tree.children):
         yield from postorder(c)

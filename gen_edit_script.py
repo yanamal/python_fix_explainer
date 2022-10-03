@@ -1,21 +1,12 @@
-# Logic for generating an edit script given a mapping between two ManipulableAst
+# Logic for generating an edit script given a mapping between two MutableAst
 # The edit script is determined entirely by the mapping,
 # though the logic and sequence of deriving it is somewhat nuanced.
 import dataclasses
 from enum import Enum, auto
 
-import time
-from collections import defaultdict
-
-import astor
-import networkx as nx
-
-# import const_unroll
-import manip_ast
+import muast
 import map_asts
-import ast
 import copy
-from apted import APTED, Config
 from difflib import SequenceMatcher
 
 
@@ -43,7 +34,7 @@ class Stage(Enum):
 class Edit:
     action: Action  # what type of edit action this is
     stage: Stage  # what edit stage it should happen in
-    node_id: str  # the id of the node (uuid created when original ManipulableAst was created)
+    node_id: str  # the id of the node (uuid created when original MutableAst was created)
     parent_id: str = None  # the id of the parent node (usually, but not always, in the original tree)
 
     new_node_id: str = None  # the id of the node that will replace current node (for UPDATE action only)
@@ -68,20 +59,20 @@ class Edit:
     def apply_edit(self, index_to_node: dict, nonleaf_OK=False):
         # apply edit described in this object, translating node indices to actual nodes using index_to_node
         # insert/delete of entire subtrees (non-leaves) only allowed if subtree_OK is True.
-        node: manip_ast.ManipulableAst = index_to_node[self.node_id]
+        node: muast.MutableAst = index_to_node[self.node_id]
         if self.action == Action.UPDATE:
             # update: change the contents of node to match some new node
-            new_node: manip_ast.ManipulableAst = index_to_node[self.node_id]
+            new_node: muast.MutableAst = index_to_node[self.node_id]
             return node.update(new_node)
         elif self.action == Action.DELETE:
             # delete this node from its parent
             if not nonleaf_OK and len(node.children) > 0:
-                raise manip_ast.ForbiddenEditException(f'Trying to delete node {node.index} with children')
+                raise muast.ForbiddenEditException(f'Trying to delete node {node.index} with children')
             return node.parent.remove_child(node)
         elif self.action == Action.INSERT:
             # insert given node; use insert function appropriate for parent node type.
             if not nonleaf_OK and len(node.children) > 0:
-                raise manip_ast.ForbiddenEditException(f'Trying to insert node {node.index} with children')
+                raise muast.ForbiddenEditException(f'Trying to insert node {node.index} with children')
             parent = index_to_node[self.parent_id]
             if self.key_in_parent:
                 # inserting at a specific key in the parent
@@ -108,9 +99,10 @@ class Edit:
 # - determine dependencies,
 # - track variable renaming,
 # - probably other dependent logic
-def generate_edit_script(source_tree: manip_ast.ManipulableAst,
-                         dest_tree: manip_ast.ManipulableAst,
+def generate_edit_script(source_tree: muast.MutableAst,
+                         dest_tree: muast.MutableAst,
                          index_mapping: set):
+    # TODO: edit script object which also contains info like additional nodes, var renames?
     #### Data structures for record keeping ####
     # make deep copies of both trees, because we will be editing them on the fly:
     # TODO: refactor to use Edit.apply_edit for each edit type instead of re-implementing application logic?
@@ -123,11 +115,11 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
     var_renames_d_to_s = {}  # mappings of variable renames (dest -> source)
 
     source_index_to_node = {}
-    for n in manip_ast.breadth_first(source_tree):
+    for n in muast.breadth_first(source_tree):
         source_index_to_node[n.index] = n
 
     dest_index_to_node = {}
-    for n in manip_ast.breadth_first(dest_tree):
+    for n in muast.breadth_first(dest_tree):
         dest_index_to_node[n.index] = n
 
     source_to_dest = {}
@@ -140,7 +132,7 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
     additional_nodes = {}  # index-to-node map of nodes from the dest tree that are used in the edit script.
 
     ### helper functions which operate on data above ###
-    def is_update_variable_rename(source_node: manip_ast.ManipulableAst, dest_node: manip_ast.ManipulableAst):
+    def is_update_variable_rename(source_node: muast.MutableAst, dest_node: muast.MutableAst):
         # Is this update operation a rename of a variable?
         # Returns False if this change isn't a variable rename, or data about the rename if it is.
         # TODO: also keep track of properly-mapped parameters/variables and don't try to rename them
@@ -180,7 +172,7 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
     # (which hopefully matches order of execution - this is important to correctly map variable renames)
     # This logic can result in update and align stages being mixed,
     # but this is OK because edits from these stages don't depend on each other.
-    for s_n in manip_ast.depth_first(source_tree):
+    for s_n in muast.depth_first(source_tree):
         s_i = s_n.index
         if s_i not in source_to_dest:
             # The stages in this loop operate only on mapped nodes, so we can skip unmapped ones early.
@@ -207,8 +199,8 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
             edit_script.append(edit)
 
             # copy the replacement node into additional nodes
-            additional_nodes[d_n.index] = manip_ast.ManipulableAst(copy.deepcopy(d_n.ast), node_index=d_n.index,
-                                                                   shallow=True)
+            additional_nodes[d_n.index] = muast.MutableAst(copy.deepcopy(d_n.ast), node_index=d_n.index,
+                                                           shallow=True)
             # modify source tree to apply edit
             s_n.update(d_n)
 
@@ -356,10 +348,10 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
     # assumes all nodes where insertion is happening are aligned correctly
     # also assumes that the roots of the trees map to each other; this is always true in the trees that
     # Python AST produces (the root is a Module node)
-    for d_n in manip_ast.breadth_first(dest_tree):
+    for d_n in muast.breadth_first(dest_tree):
         if d_n.index not in dest_to_source:
             # Create a shallow copy of the node, with the same index.
-            to_insert = manip_ast.ManipulableAst(copy.deepcopy(d_n.ast), node_index=d_n.index, shallow=True)
+            to_insert = muast.MutableAst(copy.deepcopy(d_n.ast), node_index=d_n.index, shallow=True)
             additional_nodes[to_insert.index] = copy.deepcopy(to_insert)  # make separate copy for actual insertion
 
             # Update mapping data structures:
@@ -385,7 +377,7 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
 
     #### Move step ####
     # assumes each node in correct tree has a match (all insertions have happened)
-    for d_n in manip_ast.breadth_first(dest_tree):
+    for d_n in muast.breadth_first(dest_tree):
         if d_n.parent:  # only non-root nodes (again, roots are assumed to match correctly by now)
             s_i = dest_to_source[d_n.index]
             s_n = source_index_to_node[s_i]
@@ -404,7 +396,7 @@ def generate_edit_script(source_tree: manip_ast.ManipulableAst,
     #### Delete step ####
     # assumes move has happened - any unmatched nodes in source tree do not have any matched children
     # (so can delete unmatched leaves bottom-up)
-    actual_postorder = list(manip_ast.postorder(source_tree))  # don't use generator and then edit tree in place...
+    actual_postorder = list(muast.postorder(source_tree))  # don't use generator and then edit tree in place...
     for s_n in actual_postorder:
         if s_n.index not in source_to_dest:
             # if node is not mapped to a dest node, delete it

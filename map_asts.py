@@ -1,8 +1,8 @@
-# Logic for creating a "good" mapping between two ManipulableAst objects
+# Logic for creating a "good" mapping between two MutableAst objects
 # The mapping mostly tries to optimize for a shorter resulting edit script,
-# though there are some heuristics in place to create map more "related" parts of the code together.
+# though there are some heuristics in place to map more "related" parts of the code together.
 
-from manip_ast import ManipulableAst
+from muast import MutableAst
 import ast
 import copy
 from apted import APTED, Config
@@ -51,8 +51,8 @@ class CompareConfig(Config):
         return float(base_cost)
 
 
-def _generate_subtrees(tree: ManipulableAst, exclude_set):
-    # Generate a ManipulableAst which contains a subset of the nodes in tree:
+def _generate_subtrees(tree: MutableAst, exclude_set):
+    # Generate a MutableAst which contains a subset of the nodes in tree:
     # include all nodes except those in exclude_set.
     # if a node is in exclude_set, skip it and move its children to its parent.
     child_subtrees = []
@@ -68,16 +68,16 @@ def _generate_subtrees(tree: ManipulableAst, exclude_set):
 
         # deepcopy of the underlying Python AST ensures that we don't mess up the original underlying tree
         # (e.g. when cutting off children to make the copy shallow)
-        new_node = ManipulableAst(copy.deepcopy(tree.ast), tree.index, shallow=True, name=tree.name)
+        new_node = MutableAst(copy.deepcopy(tree.ast), tree.index, shallow=True, name=tree.name)
         # retain name of old node.
         for new_c in child_subtrees:
-            # TODO: is this deepcopy necessary? orr will all the underlying children be copied by now anyway?
+            # TODO: is this deepcopy necessary? or will all the underlying children be copied by now anyway?
             new_node.add_child_anywhere(copy.deepcopy(new_c))
         return [new_node]  # return list for consistency
 
 
-def _generate_unmapped_subtrees(source_tree: ManipulableAst,
-                                dest_tree: ManipulableAst,
+def _generate_unmapped_subtrees(source_tree: MutableAst,
+                                dest_tree: MutableAst,
                                 node_mapping: list):
     # Generate subtrees of both source_tree and dest_tree
     # which consist only of nodes that aren't mapped to each other in node_mapping.
@@ -86,9 +86,9 @@ def _generate_unmapped_subtrees(source_tree: ManipulableAst,
 
     # Make new fake root nodes,
     # set a special FakeRoot type to make sure they are mapped to each other (not some arbitrary NodeList)
-    source_root = ManipulableAst([], source_tree.index, shallow=True, name='FakeRoot')
+    source_root = MutableAst([], source_tree.index, shallow=True, name='FakeRoot')
     source_root.nodeType = 'FakeRoot'
-    dest_root = ManipulableAst([], dest_tree.index, shallow=True, name='FakeRoot')
+    dest_root = MutableAst([], dest_tree.index, shallow=True, name='FakeRoot')
     dest_root.nodeType = 'FakeRoot'
 
     source_children = _generate_subtrees(source_tree, set(source_mapped))
@@ -104,7 +104,7 @@ def _generate_unmapped_subtrees(source_tree: ManipulableAst,
     return source_root, dest_root
 
 
-def generate_mapping(source_tree: ManipulableAst, dest_tree: ManipulableAst):
+def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst):
     # generate mapping between the two trees, represented as a set of pairs of mapped nodes.
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
@@ -153,8 +153,8 @@ def draw_comparison(source_tree, dest_tree, index_mapping, filename='out/test.do
     map_edges = ''
     for s_i, c_i in index_mapping:
         if (s_i is not None) and (c_i is not None):
-            map_edges += f'source{ManipulableAst.gen_short_index(s_i)} -> ' \
-                         f'dest{ManipulableAst.gen_short_index(c_i)}\n'
+            map_edges += f'source{MutableAst.gen_short_index(s_i)} -> ' \
+                         f'dest{MutableAst.gen_short_index(c_i)}\n'
 
     with open(f'{filename}', 'w') as f:
         f.write(f'''
@@ -181,9 +181,9 @@ def draw_comparison(source_tree, dest_tree, index_mapping, filename='out/test.do
 
 
 def get_trees_and_mapping(source_text, dest_text):
-    source_tree = ManipulableAst(ast.parse(source_text))
+    source_tree = MutableAst(ast.parse(source_text))
     # make sure dest indices are distinct from source indices:
-    dest_tree = ManipulableAst(ast.parse(dest_text))
+    dest_tree = MutableAst(ast.parse(dest_text))
 
     index_mapping = generate_mapping(source_tree, dest_tree)
 
