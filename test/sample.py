@@ -39,13 +39,12 @@ for fixed_code in [fixed_code1, fixed_code2]:
     print('fixed version of code:')
     print(dest_tree)
     # generate edit script and additional metadata which is needed to use the edit script.
-    edit_script, additional_nodes, var_renames = \
-        gen_edit_script.generate_edit_script(source_tree, dest_tree, index_mapping)
+    edit_script = gen_edit_script.generate_edit_script(source_tree, dest_tree, index_mapping)
 
-    print('The edit distance is:', len(edit_script))
+    print('The edit distance is:', edit_script.edit_distance)
 
     # print out edit script
-    print('Edit script:')
-    for e in edit_script:
+    print('Edits in edit script:')
+    for e in edit_script.edits:
         print(e)
 

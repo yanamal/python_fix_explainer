@@ -3,6 +3,7 @@
 # though the logic and sequence of deriving it is somewhat nuanced.
 import dataclasses
 from enum import Enum, auto
+from typing import List, Dict
 
 import muast
 import map_asts
@@ -32,6 +33,7 @@ class Stage(Enum):
 # class describing a particular edit which can be applied to a specific tree (or copy thereof)
 @dataclasses.dataclass
 class Edit:
+    # TODO: human-readable edit output (store node strs in edit? look up nodes in edit script data?)
     action: Action  # what type of edit action this is
     stage: Stage  # what edit stage it should happen in
     node_id: str  # the id of the node (uuid created when original MutableAst was created)
@@ -91,6 +93,17 @@ class Edit:
 
             insert_edit = dataclasses.replace(self, action=Action.INSERT)
             return insert_edit.apply_edit(index_to_node, nonleaf_OK=True)
+
+
+@dataclasses.dataclass
+class EditScript:
+    edits: List[Edit]  # ordered list of edits in the edit script
+    additional_nodes: Dict[str, muast.MutableAst]  # index-to-node map of additional nodes used in edit script.
+    var_renames: Dict[str, str]  # map of variable names in original code vs. target code (for simplifying out later)
+
+    @property
+    def edit_distance(self):
+        return len(self.edits)
 
 
 # Generate the edit script - a list of edits (Edit objects) which need to happen in that order to change
@@ -407,6 +420,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
                 node_id=s_n.index
             )
             if s_n.key_in_parent and (type(s_n.key_in_parent) == str):
+                # noinspection PyProtectedMember
                 if s_n.key_in_parent.startswith('old_'):
                     # this is actually a (necessary) deletion of a node with a temporary key
                     delete_e.is_fix_temp_key = True
@@ -426,4 +440,9 @@ def generate_edit_script(source_tree: muast.MutableAst,
         map_asts.draw_comparison(source_tree, dest_tree, index_mapping, 'except.dot')
         raise Exception(f'Source tree is not equal to dest tree \n{source_tree} \n{dest_tree}')
 
-    return edit_script, additional_nodes, var_renames_s_to_d
+    return EditScript(
+        edits=edit_script,
+        additional_nodes=additional_nodes,
+        var_renames=var_renames_s_to_d
+    )
+

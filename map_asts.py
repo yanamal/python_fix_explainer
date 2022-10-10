@@ -157,6 +157,7 @@ def draw_comparison(source_tree, dest_tree, index_mapping, filename='out/test.do
                          f'dest{MutableAst.gen_short_index(c_i)}\n'
 
     with open(f'{filename}', 'w') as f:
+        # TODO: use pydot?
         f.write(f'''
             digraph G
             {{

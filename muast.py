@@ -450,6 +450,8 @@ class MutableAst:
         return exec(code_string, globals())  # not sure if exec actually returns anything
 
     def test_potential_timeout(self, unit_test_strings):
+        # run a set of unit test strings after running the code in this AST.
+        # may cuse a Timeout exception (e.g. if the code has an infinite loop)
         try:
             code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
             exec(code_string, globals())
@@ -458,6 +460,7 @@ class MutableAst:
             return [False for test in unit_test_strings]
 
     def test(self, unit_test_strings):
+        # run a set of unit test strings, and catch timeout exceptions.
         with multiprocessing.Pool(processes=2) as pool:
             result = pool.apply_async(self.test_potential_timeout, (unit_test_strings,))
             try:
@@ -480,6 +483,7 @@ class MutableAst:
         return dot_string
 
     def write_dot_file(self, tree_name, filename: str):
+        # TODO: use pydot?
         with open(f'{filename}', 'w') as f:
             f.write(f'''
                         digraph G
