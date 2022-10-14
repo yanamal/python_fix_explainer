@@ -1,3 +1,5 @@
+import networkx as nx
+
 import muast
 import map_asts
 import gen_edit_script
@@ -47,4 +49,11 @@ for fixed_code in [fixed_code1, fixed_code2]:
     print('Edits in edit script:')
     for e in edit_script.edits:
         print(e)
+
+    # Draw the dependency graph between edits in the edit script
+    # (usually not actually something you need to think about -
+    #  this is data that's used by the simplification step to know which edits belong "together")
+    deps = edit_script.get_dependencies()
+    with open('../out/dependencies.dot', 'w') as dep_file:
+        nx.drawing.nx_pydot.write_dot(deps, dep_file)
 
