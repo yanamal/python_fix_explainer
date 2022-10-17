@@ -13,6 +13,7 @@ import copy
 import string
 import random
 from uuid import uuid4
+from typing import List
 
 import astor.code_gen as cg
 import astor
@@ -459,7 +460,7 @@ class MutableAst:
         except:  # noqa TODO: less broad?
             return [False for test in unit_test_strings]
 
-    def test(self, unit_test_strings):
+    def test(self, unit_test_strings: List[str]):
         # run a set of unit test strings, and catch timeout exceptions.
         with multiprocessing.Pool(processes=2) as pool:
             result = pool.apply_async(self.test_potential_timeout, (unit_test_strings,))

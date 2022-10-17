@@ -1,9 +1,15 @@
+import ast
+import logging
+import sys
+
 import networkx as nx
 
-import muast
-import map_asts
 import gen_edit_script
-import ast
+import map_asts
+import muast
+import simplify
+
+# logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
 student_code = '''
 def kthDigit(x, k):
@@ -25,6 +31,13 @@ def kthDigit(x, k):
     y = kthDigLeft//(10**(k-1))
     return y
 '''
+
+kt_digit_unit_tests = [
+    "kthDigit(4,1)==4",
+    "kthDigit(123,2)==2",
+    "kthDigit(5003,3)==0",
+    "kthDigit(98,1)==8",
+]
 
 ### Sample 1: transform python code to MutableAst object; print it out, output AST to file
 code_tree = muast.MutableAst(ast.parse(student_code))
@@ -56,4 +69,11 @@ for fixed_code in [fixed_code1, fixed_code2]:
     deps = edit_script.get_dependencies()
     with open('../out/dependencies.dot', 'w') as dep_file:
         nx.drawing.nx_pydot.write_dot(deps, dep_file)
+
+    print('code after applying edit script:')
+    print(edit_script.apply(source_tree))
+
+    print('Code after simplifying:')
+    simplified, deps = simplify.simplify_edit_script(source_tree, kt_digit_unit_tests, edit_script)
+    print(simplified.apply(source_tree))
 

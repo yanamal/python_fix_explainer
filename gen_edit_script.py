@@ -4,7 +4,7 @@
 import dataclasses
 from collections import defaultdict
 from enum import Enum, auto
-from typing import List, Dict
+from typing import List, Dict, Callable
 import networkx as nx
 
 import muast
@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 class Action(Enum):
     UPDATE = auto()  # Update the value of a node
     INSERT = auto()  # Insert a (leaf) node
-    MOVE = auto()    # Move a node (with subtree rooted at that node) elsewhere in the tree
+    MOVE = auto()  # Move a node (with subtree rooted at that node) elsewhere in the tree
     DELETE = auto()  # Delete a (leaf) node from the tree
 
 
@@ -68,12 +68,13 @@ class Edit:
         return f'{self.action}_{self.stage}_{self.node_id}'
 
     def apply_edit(self, index_to_node: dict, nonleaf_OK=False):
-        # apply edit described in this object, translating node indices to actual nodes using index_to_node
+        # apply edit described in this object, translating node indices to actual nodes using index_to_node.
+        # mutates the node/tree objects described in index_to_node.
         # insert/delete of entire subtrees (non-leaves) only allowed if subtree_OK is True.
         node: muast.MutableAst = index_to_node[self.node_id]
         if self.action == Action.UPDATE:
             # update: change the contents of node to match some new node
-            new_node: muast.MutableAst = index_to_node[self.node_id]
+            new_node: muast.MutableAst = index_to_node[self.new_node_id]
             return node.update(new_node)
         elif self.action == Action.DELETE:
             # delete this node from its parent
@@ -104,6 +105,23 @@ class Edit:
             return insert_edit.apply_edit(index_to_node, nonleaf_OK=True)
 
 
+# Generate mapping from index(node id) to node for a given MutableAst.
+# Also include any additional nodes in the existing mapping provided by additional_nodes.
+# This needs to be generated as part of reasoning about an edit script in the context of a particular AST being edited
+# (which is usually a copy of the original AST used when making the edit script, possibly already partially edited)
+def gen_index_to_node(tree: muast.MutableAst, additional_nodes: Dict[str, muast.MutableAst] = None):
+    if additional_nodes is None:
+        additional_nodes = {}
+    index_to_node = {}
+    for node in muast.breadth_first(tree):
+        index_to_node[node.index] = node
+
+    for n in additional_nodes:
+        index_to_node[n] = additional_nodes[n]
+
+    return index_to_node
+
+
 # Class describing a full edit script, including a list of edits,
 # and metadata needed to manipulate and analyze the edit script.
 # Note: properties like index_to_node are calculated once and cached,
@@ -116,34 +134,34 @@ class EditScript:
     additional_nodes: Dict[str, muast.MutableAst]  # index-to-node map of additional nodes used in edit script.
     var_renames: Dict[str, str]  # map of variable names in original code vs. target code (for simplifying out later)
     source_tree: muast.MutableAst  # copy of the AST to which this edit script applies
-    _index_to_node: Dict[str, muast.MutableAst] = None  # map from index to node for all nodes used in edit script
 
     @property
     def edit_distance(self):
         return len(self.edits)
 
-    def _get_index_to_node(self):
-        index_to_node = {}
-        for node in muast.breadth_first(self.source_tree):
-            index_to_node[node.index] = node
+    def apply(self, source_tree: muast.MutableAst):
+        # apply this edit script to a copy of the given source tree (does not mutate the source)
+        # (which may be somewhat different from the original source tree, e.g. it could be already partially edited)
+        dest_tree = copy.deepcopy(source_tree)
+        additional_nodes_copy = copy.deepcopy(self.additional_nodes)
+        index_to_node = gen_index_to_node(dest_tree, additional_nodes_copy)
+        for edit in self.edits:
+            edit.apply_edit(index_to_node)
+        return dest_tree
 
-        for n in self.additional_nodes:
-            index_to_node[n] = self.additional_nodes[n]
+    def filtered_copy(self, remove_filter: Callable[[Edit], bool]):
+        # return a copy of this edit script, with edits filtered out based on remove_filter function
+        # (remove_filter edit if remove_filter returns True)
+        filtered = copy.deepcopy(self)
+        filtered.edits = [e for e in self.edits if not remove_filter(e)]
+        return filtered
 
-        return index_to_node
-
-    @property
-    def index_to_node(self):
-        if not hasattr(self, 'index_to_node_map'):
-            self._index_to_node = self._get_index_to_node()
-        return self._index_to_node
-
-    def is_edit_move_to_descendant(self, edit: Edit):
+    def is_edit_move_to_descendant(self, edit: Edit, index_to_node: Dict[str, muast.MutableAst]):
         # is this edit (which should be a move that's part of this edit script)
         # one that moves a node to its own descendant?
 
-        moved_node = self.index_to_node[edit.node_id]
-        new_parent = self.index_to_node[edit.parent_id]
+        moved_node = index_to_node[edit.node_id]
+        new_parent = index_to_node[edit.parent_id]
 
         p_ancestor_node = new_parent.parent
         move_loop = False
@@ -158,9 +176,10 @@ class EditScript:
     def get_dependencies(self):
         # Figure out which steps in a (valid) edit script depend on other steps being present
         # (can't remove a step with dependencies if the dependencies stay in)
-
         # returns an nx.DiGraph object mapping out the dependencies between edits
         # (where edits are represented by strings generated by edit.short_string)
+
+        index_to_node = gen_index_to_node(self.source_tree, self.additional_nodes)
 
         # map from short partial representation of edit to edit itself:
         #   for looking up whether particular potential dependent edits exist in the edit script.
@@ -176,7 +195,7 @@ class EditScript:
             if edit.stage == Stage.DELETE:
                 # in-edit-script-order dependency: (delete <- delete) or (move <- delete)
                 # deletion operations depend on all the children having been moved/deleted first.
-                del_node = self.index_to_node[edit.node_id]
+                del_node = index_to_node[edit.node_id]
                 for c in del_node.children:
                     del_child_string = Edit(
                         action=Action.DELETE,
@@ -196,7 +215,7 @@ class EditScript:
             elif edit.stage in [Stage.MOVE, Stage.INSERT]:
                 # in-edit-script-order dependency: (insert <- move) or (insert <- insert)
                 # moves (to another parent) and inserts depend on having the parent already be inserted into the tree
-                move_node = self.index_to_node[edit.node_id]
+                move_node = index_to_node[edit.node_id]
                 insert_parent_string = Edit(
                     action=Action.INSERT,
                     stage=Stage.INSERT,
@@ -224,30 +243,13 @@ class EditScript:
                 if update_parent_string in string_to_edit:
                     dependencies[edit.short_string].append(update_parent_string)
 
-            # TODO: Verify that this case is redundant with checking for edit.is_cleanup_after_node_type_change
-            # if edit.action == Action.MOVE:
-            #     # out-of-order dependency: (update -> move)
-            #     # updates to nodes (probably) depend on any existing moves *from* those nodes
-            #     #  (so that there are no longer any nodes at unexpected keys that don't exist
-            #     #   for the updated type of this node)
-            #     # this includes any move action, whether at "move" or "update" stage, which may change the node's key
-            #     # TODO: also depends on deletes; also only if the old key is not in the new node?
-            #     move_node = self.index_to_node[edit.node_id]
-            #     update_old_parent_string = Edit(
-            #         action=Action.UPDATE,
-            #         stage=Stage.UPDATE,
-            #         node_id=move_node.parent,
-            #     ).short_string
-            #     if update_old_parent_string in string_to_edit:
-            #         dependencies[update_old_parent_string].append(edit.short_string)
-
-            if edit.stage == Stage.MOVE and self.is_edit_move_to_descendant(edit):
+            if edit.stage == Stage.MOVE and self.is_edit_move_to_descendant(edit, index_to_node):
                 # (conceptually) out-of-order dependency: (move -> move)
                 # If a node is moved somewhere within its descendent chain, then that moves depends on
                 # some move(s) of the parenting chain in between which restore the tree back to a connected,
                 # non-circular thing
-                moved_node = self.index_to_node[edit.node_id]
-                new_ancestor = self.index_to_node[edit.parent_id]
+                moved_node = index_to_node[edit.node_id]
+                new_ancestor = index_to_node[edit.parent_id]
                 while new_ancestor and new_ancestor != moved_node:
                     move_ancestor_string = Edit(
                         action=Action.MOVE,
@@ -262,7 +264,7 @@ class EditScript:
                 # mixed-order dependency: (insert <- move) or (align -> insert)
                 # moving a node (either as move or as align step) depends on having inserted that node.
                 # insert + move only happens when combining two edit scripts into one.
-                # Note: this kind of combining is not part of the current algorithm but it may be added.
+                # Note: this kind of combining is not part of the current algorithm but it may be added in again later.
                 # TODO: if combining scripts, simplify insert + move into insert.
                 insert_self_string = Edit(
                     action=Action.INSERT,
@@ -306,7 +308,7 @@ class EditScript:
                 # out-of-order dependency: (update -> move) or (update -> delete)
                 # updates depend on moving/deleting children that no longer belong to that type of node
                 # (is_cleanup_after_node_type_change edits)
-                parent = self.index_to_node[edit.node_id].parent
+                parent = index_to_node[edit.node_id].parent
                 update_parent_string = Edit(
                     action=Action.UPDATE,
                     stage=Stage.UPDATE,
@@ -509,8 +511,8 @@ def generate_edit_script(source_tree: muast.MutableAst,
             for i, c_s_i in enumerate(mapped_dest_order):
                 if c_s_i not in correctly_aligned:
                     # get the actual nodes in the source tree with which to align c_s_i:
-                    before_c = source_index_to_node[mapped_dest_order[i-1]] if i > 0 else None
-                    after_c = source_index_to_node[mapped_dest_order[i+1]] if i < len(mapped_dest_order)-1 else None
+                    before_c = source_index_to_node[mapped_dest_order[i - 1]] if i > 0 else None
+                    after_c = source_index_to_node[mapped_dest_order[i + 1]] if i < len(mapped_dest_order) - 1 else None
 
                     # apply the change to the source tree:
                     move_node = source_index_to_node[c_s_i]
@@ -525,7 +527,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
                         parent_id=s_n.index,
                         before=before_c.index if before_c else None,
                         after=after_c.index if after_c else None
-                     ))
+                    ))
 
     ### Helper functions for the rest of the stages ###
     def get_source_parent_of_mapped(dest_index):
@@ -559,8 +561,8 @@ def generate_edit_script(source_tree: muast.MutableAst,
 
             insert_before = \
                 source_index_to_node[dest_to_source[dest_before.index]] \
-                if dest_before and dest_before.index in dest_to_source \
-                else None
+                    if dest_before and dest_before.index in dest_to_source \
+                    else None
             insert_after = \
                 source_index_to_node[dest_to_source[dest_after.index]] \
                     if dest_after and dest_after.index in dest_to_source \
@@ -594,7 +596,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
             additional_nodes[to_insert.index] = copy.deepcopy(to_insert)  # make separate copy for actual insertion
 
             # Update mapping data structures:
-            index_mapping.add( (to_insert.index, d_n.index) )  # TODO: obsolete? (and also index_mapping.deepcopy?)
+            index_mapping.add((to_insert.index, d_n.index))  # TODO: obsolete? (and also index_mapping.deepcopy?)
             source_to_dest[to_insert.index] = d_n.index
             dest_to_source[d_n.index] = to_insert.index
             source_index_to_node[to_insert.index] = to_insert
@@ -663,4 +665,3 @@ def generate_edit_script(source_tree: muast.MutableAst,
         var_renames=var_renames_s_to_d,
         source_tree=orig_tree
     )
-
