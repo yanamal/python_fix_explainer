@@ -66,14 +66,14 @@ for fixed_code in [fixed_code1, fixed_code2]:
     # Draw the dependency graph between edits in the edit script
     # (usually not actually something you need to think about -
     #  this is data that's used by the simplification step to know which edits belong "together")
-    deps = edit_script.get_dependencies()
+    deps = edit_script.dependencies
     with open('../out/dependencies.dot', 'w') as dep_file:
         nx.drawing.nx_pydot.write_dot(deps, dep_file)
 
     print('code after applying edit script:')
     print(edit_script.apply(source_tree))
 
+    simplified = simplify.simplify_edit_script(source_tree, kt_digit_unit_tests, edit_script)
     print('Code after simplifying:')
-    simplified, deps = simplify.simplify_edit_script(source_tree, kt_digit_unit_tests, edit_script)
     print(simplified.apply(source_tree))
 

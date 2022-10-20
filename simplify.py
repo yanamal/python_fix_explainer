@@ -49,8 +49,8 @@ def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit
 # Simplification step 2: try removing each block of mutually-dependent edits to see if code is still correct without it.
 # Repeat until no more blocks can be removed.
 def simplify_dependent_blocks(
-        source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript, dependencies: nx.DiGraph):
-    potential_removals = [set(es) for es in nx.connected_components(dependencies.to_undirected())]
+        source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
+    potential_removals = [set(es) for es in nx.connected_components(edit_script.dependencies.to_undirected())]
 
     # sort in descending order based on earliest edit in the block.
     # TODO: This doesn't do anything sensible since indices are no longer sensbily ordrered integers.
@@ -96,11 +96,9 @@ def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit
     edit_script = simplify_var_renames(source_tree, problem_tests, edit_script)
 
     ### Get connected components of 'dependent' edits
-    # TODO: calculate/memoize dependencies as part of edit script object?..
-    dependencies = edit_script.get_dependencies()
     # TODO: use runtime improvement information to simplify dependent blocks?..
     edit_script, remaining_blocks = simplify_dependent_blocks(
-        source_tree, problem_tests, edit_script, dependencies)
+        source_tree, problem_tests, edit_script)
 
     for b in remaining_blocks:
         logging.debug('block start:')
@@ -115,4 +113,4 @@ def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit
 
     get_block_order_info(problem_name, source_tree, edit_script, additional_nodes, edit_blocks, dependencies)'''
 
-    return edit_script, dependencies
+    return edit_script

@@ -67,7 +67,7 @@ class Edit:
         # get a string representation of the (partial) specification of an edit
         return f'{self.action}_{self.stage}_{self.node_id}'
 
-    def apply_edit(self, index_to_node: dict, nonleaf_OK=False):
+    def apply_edit(self, index_to_node: Dict[str, muast.MutableAst], nonleaf_OK=False):
         # apply edit described in this object, translating node indices to actual nodes using index_to_node.
         # mutates the node/tree objects described in index_to_node.
         # insert/delete of entire subtrees (non-leaves) only allowed if subtree_OK is True.
@@ -104,6 +104,23 @@ class Edit:
             insert_edit = dataclasses.replace(self, action=Action.INSERT)
             return insert_edit.apply_edit(index_to_node, nonleaf_OK=True)
 
+    def is_edit_move_to_descendant(self, index_to_node: Dict[str, muast.MutableAst]):
+        # is this edit (which is assumed to be a move)
+        # one that moves a node to its own descendant?
+
+        moved_node = index_to_node[self.node_id]
+        new_parent = index_to_node[self.parent_id]
+
+        p_ancestor_node = new_parent.parent
+        move_loop = False
+        while p_ancestor_node:
+            if p_ancestor_node == moved_node:
+                move_loop = True
+                break
+            p_ancestor_node = p_ancestor_node.parent
+
+        return move_loop
+
 
 # Generate mapping from index(node id) to node for a given MutableAst.
 # Also include any additional nodes in the existing mapping provided by additional_nodes.
@@ -134,6 +151,7 @@ class EditScript:
     additional_nodes: Dict[str, muast.MutableAst]  # index-to-node map of additional nodes used in edit script.
     var_renames: Dict[str, str]  # map of variable names in original code vs. target code (for simplifying out later)
     source_tree: muast.MutableAst  # copy of the AST to which this edit script applies
+    _dependency_graph: nx.DiGraph = None  # dependency graph between edits in the edit script
 
     @property
     def edit_distance(self):
@@ -154,26 +172,11 @@ class EditScript:
         # (remove_filter edit if remove_filter returns True)
         filtered = copy.deepcopy(self)
         filtered.edits = [e for e in self.edits if not remove_filter(e)]
+        # Reset data that needs to be recalculated
+        filtered._dependency_graph = None
         return filtered
 
-    def is_edit_move_to_descendant(self, edit: Edit, index_to_node: Dict[str, muast.MutableAst]):
-        # is this edit (which should be a move that's part of this edit script)
-        # one that moves a node to its own descendant?
-
-        moved_node = index_to_node[edit.node_id]
-        new_parent = index_to_node[edit.parent_id]
-
-        p_ancestor_node = new_parent.parent
-        move_loop = False
-        while p_ancestor_node:
-            if p_ancestor_node == moved_node:
-                move_loop = True
-                break
-            p_ancestor_node = p_ancestor_node.parent
-
-        return move_loop
-
-    def get_dependencies(self):
+    def _get_dependencies(self):
         # Figure out which steps in a (valid) edit script depend on other steps being present
         # (can't remove a step with dependencies if the dependencies stay in)
         # returns an nx.DiGraph object mapping out the dependencies between edits
@@ -243,7 +246,7 @@ class EditScript:
                 if update_parent_string in string_to_edit:
                     dependencies[edit.short_string].append(update_parent_string)
 
-            if edit.stage == Stage.MOVE and self.is_edit_move_to_descendant(edit, index_to_node):
+            if edit.stage == Stage.MOVE and edit.is_edit_move_to_descendant(index_to_node):
                 # (conceptually) out-of-order dependency: (move -> move)
                 # If a node is moved somewhere within its descendent chain, then that moves depends on
                 # some move(s) of the parenting chain in between which restore the tree back to a connected,
@@ -325,6 +328,15 @@ class EditScript:
                 dep_graph.add_node(e_str)
 
         return dep_graph
+
+    def recalc_dependencies(self):
+        self._dependency_graph = self._get_dependencies()
+
+    @property
+    def dependencies(self):
+        if self._dependency_graph is None:
+            self.recalc_dependencies()
+        return self._dependency_graph
 
 
 # Generate the edit script - a list of edits (Edit objects) which need to happen in that order to change
