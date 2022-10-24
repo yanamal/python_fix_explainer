@@ -1,0 +1,227 @@
+# logic for creating a mapping between:
+# (a) the nodes in a MutableAst representation of some code; and
+# (b) the instructions in the bytecode representation of the same code
+
+# We achieve this in a somewhat hacky way,
+# by deleting nodes from the AST one at a time and seeing what changes in the bytecode.
+import ast
+import copy
+import difflib
+import dis
+import types
+from collections import deque
+
+
+import muast
+
+
+# types of possible (resolved) bytecode values which are not pickleable;
+# we probably don't care about them when instrumenting tracing
+unpickleable = {types.CodeType, types.MethodType, types.ModuleType, types.FunctionType}
+
+
+# A class for easier tracking of individual bytecode instructions
+class Opdata:
+    def __init__(self, instr, code_obj):
+        self.instr = instr
+        self.code_obj = code_obj
+        self.co_name = code_obj.co_name
+        self.offset = instr.offset
+        self.opcode = instr.opcode
+        self.arg = instr.arg
+        self.mapped_node_id = None
+
+    @property
+    def id(self):
+        return self.co_name, self.offset
+
+    def __str__(self):
+        return f'{self.co_name}\t{self.offset} {self.instr.opname} {self.instr.argval}\t{self.mapped_node_id}'
+
+
+# A class which represents code as a flat list of bytecode ops
+# (rather than the nested Python bytecode where a single op sometimes points to a whole subprogram)
+# This is used to compare versions bytecode resulting from slighly different ASTs,
+# To capture how changing AST nodes affects the resulting bytecode.
+class FlatOpsList:
+    def __init__(self, code_tree: muast.MutableAst):
+        code_str = code_tree.to_compileable_str()
+        # default(blank) ops
+        self.ops = []
+        self.id_to_op = {}
+
+        # convert a string of code into a flat list of bytecode ops
+        try:
+            root_code_obj = compile(code_str, '', 'exec')
+        except SyntaxError:
+            # This code does not compile; so there is no associated bytecode (fields are left blank)
+            return
+
+        # things like function definitions are compiled into their own code objects;
+        # keep a queue of all code objects to process
+        all_code_objs = deque([root_code_obj])
+
+        while len(all_code_objs) > 0:
+            curr_code_obj = all_code_objs.popleft()
+            for instr in dis.get_instructions(curr_code_obj):
+                if isinstance(instr.argval, types.CodeType):
+                    all_code_objs.append(instr.argval)
+                # opcode.opname[instr.opcode]
+                op_data = Opdata(instr, curr_code_obj)
+                self.ops.append(op_data)
+                self.id_to_op[op_data.id] = op_data
+
+    def __getitem__(self, item):
+        return self.ops[item]
+
+    def __iter__(self):
+        return iter(self.ops)
+
+    def __len__(self):
+        return len(self.ops)
+
+    def __str__(self):
+        return '\n'.join([str(op) for op in self.ops])
+
+    def get_by_id(self, op_id):
+        return self.id_to_op[op_id]
+
+    def has_op_id(self, op_id):
+        return op_id in self.id_to_op
+
+
+def compare_op_lists(op_list1: FlatOpsList, op_list2: FlatOpsList, changed_node_id: str):
+    # Compare two FlatOpsList objects to identify how the ops changed from the first to the second,
+    # and record these changes as changes associated with changed_node_id:
+    # (1) find longest commons subsequence of two op lists (based solely on the opcodes, not argvals)
+    # (2) find ops that changed: ops that are either unmapped in the LCS, or ones where the argval changed.
+    # (3) record which changed_node_id these chaanges are associated with (by modifying in place op_list*)
+    # returns mapping between the two ops list (based on unique op identifier of co_name and offset),
+    # and the list of ops that changed
+
+    ops1 = [o.opcode for o in op_list1]
+    ops2 = [o.opcode for o in op_list2]
+    s = difflib.SequenceMatcher(None, ops1, ops2, autojunk=False)
+    op_map = {}
+    mapped_ops2 = set()
+    changed_ops = set()
+    matching_blocks = s.get_matching_blocks()
+    for start1, start2, n in matching_blocks:
+        for off_i in range(n):
+            o1: Opdata = op_list1[start1 + off_i]
+            o2: Opdata = op_list2[start2 + off_i]
+            op_map[o1.id] = o2.id
+            mapped_ops2.add(o2.id)
+            if (type(o1.instr.argval) not in unpickleable) \
+                    and o1.arg not in dis.hasjrel \
+                    and o1.arg not in dis.hasjabs \
+                    and o1.instr.argval != o2.instr.argval:
+                # this op should also count as edited on both sides, because argval changed.
+                # (for example, the changed AST node represented a constant or literal that was the argument of an op)
+                # Don't count arg as having changed for the following kinds of ops:
+                #  - anything when argval is a pointer to a complex (unpickleable) object, e.g. code object
+                #  - ops whose args are addresses/offsets
+                o1.mapped_node_id = changed_node_id
+                changed_ops.add(o1.id)
+                o2.mapped_node_id = changed_node_id
+            else:
+                # if the two ops are mapped to each other, and not changed by this edit, propagate edited info forward
+                o2.mapped_node_id = o1.mapped_node_id
+
+    # find all ops that were unmapped, and record them as edited in this edit:
+    for o1 in op_list1:
+        if o1.id not in op_map:
+            changed_ops.add(o1.id)
+            o1.mapped_node_id = changed_node_id
+
+    for o2 in op_list2:
+        if o2.id not in mapped_ops2:
+            o2.mapped_node_id = changed_node_id
+
+    return op_map, changed_ops
+
+
+def gen_ops_with_node_mapping(source_tree: muast.MutableAst):
+    tree_copy = copy.deepcopy(source_tree)
+
+    # tree_copy.write_dot_file('map_test', 'map_test.dot')
+
+    deletion_order = []
+    index_to_node = {}  # TODO: could use edit_search.index_to_node() (maybe move to manip_ast?)
+    index_to_node_str = {}  # just for debugging
+    for node in muast.postorder(tree_copy):
+        deletion_order.append(node.index)
+        index_to_node[node.index] = node
+        index_to_node_str[node.index] = node.to_compileable_str()
+
+    # TODO: if compilation error, fail the same way as runtime error (earlier than this)?
+    orig_ops = FlatOpsList(tree_copy)
+    curr_ops = orig_ops
+    # map of op ids: original to prev_ops, propagated forward each time through the loop
+    orig_to_prev = {o.id: o.id for o in orig_ops}
+
+    for del_node_id in deletion_order:
+        # remove node
+        node_to_remove = index_to_node[del_node_id]
+        if not node_to_remove.parent:
+            # no parent - probably reached root
+            # no need to remove 'module' root node, it doesn't have a code representation anyway
+            continue
+        node_to_remove.parent.remove_child(node_to_remove)
+        # TODO: detect if code string is the same as previous time around (node removal makes no visible change)
+
+        # recalculate ops
+        # TODO: is this iteration shifted? prev_ops==orig_ops the first time around, so logic propagating prev_ops
+        #   does nothing the first iteration; but the last iteration operating on prev_ops misses mapped_node_id changes
+        #   recorded in curr_ops?..
+        #   Then again, it may not matter because the last node to be deleted is always the "blank" Module?..
+        prev_ops = curr_ops
+        curr_ops = FlatOpsList(tree_copy)
+
+        # compare new and old ops list, and modify them in place
+        # by annotating with index of the deleted node
+        curr_op_map, changed_ops = compare_op_lists(prev_ops, curr_ops, del_node_id)
+
+        for orig_id in orig_to_prev:
+            prev_id = orig_to_prev[orig_id]
+
+            # propagate changed ops backwards to orig_ops from prev_ops
+            if prev_id in changed_ops and (orig_ops.get_by_id(orig_id).mapped_node_id is None):
+                # TODO: prev_ops.get_by_id(prev_id).mapped_node_id should always be the current del_node_id;
+                #  so the propagation/storage of mapped_node_ids may not be necessary?..
+                orig_ops.get_by_id(orig_id).mapped_node_id = prev_ops.get_by_id(prev_id).mapped_node_id
+
+            # propagate orig_to_prev forward to point to curr_ops (soon to become prev_ops)
+            if orig_to_prev[orig_id] in curr_op_map:
+                orig_to_prev[orig_id] = curr_op_map[orig_to_prev[orig_id]]
+
+    # TODO: it looks like "return" statements in the bytecode do not get correctly mapped to the return AST node
+    #  (if one exists)
+    #  because the bytecode returns something no matter what. Instead, they get mapped to the function definition, since
+    #  they disappear when the function definition node gets deleted.
+
+    # TODO: where do the function parameter definitions get mapped to? do they not have a direct runtime effect?..
+
+    # TODO: what about function names? they seem to get mapped to the def node?..
+    #   Try special case for literals - change instead of delete?..
+
+    # TODO: return just the mapping between AST nodes and bytecode instruction ids
+    return orig_ops
+
+
+# Temporary testing code:
+code = """
+def kthDigit(x, k):
+    kthDigLeft = x%(10**(k+1))
+    kthDigRight = kthDigLeft//(10**k)
+    return kthDigRight
+"""
+
+tree = muast.MutableAst(ast.parse(code))
+
+out = gen_ops_with_node_mapping(tree)
+
+for op in out:
+    print(op)
+op_map = {op.id: op.mapped_node_id for op in out}
+print(op_map)
