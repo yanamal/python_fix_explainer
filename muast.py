@@ -13,7 +13,7 @@ import copy
 import string
 import random
 from uuid import uuid4
-from typing import List
+from typing import List, Dict
 
 import astor.code_gen as cg
 import astor
@@ -469,6 +469,25 @@ class MutableAst:
             except multiprocessing.TimeoutError:
                 print('timeout')
                 return [False for test in unit_test_strings]
+
+    # Generate mapping from index (node id) to actual node object for this MutableAst.
+    # Also include any additional nodes in the existing mapping provided by additional_nodes.
+    # This needs to be generated on demand as part of reasoning about transformations
+    # being applied to this particular tree (which may be a copy of some other tree with identical node ids
+    # that was used to come up with the edit script).
+    # The (optional) additional nodes often represent some set of nodes that we expect to add to the tree
+    # as part of an edit script.
+    def gen_index_to_node(self, additional_nodes: Dict[str, 'MutableAst'] = None):
+        if additional_nodes is None:
+            additional_nodes = {}
+        index_to_node = {}
+        for node in breadth_first(self):
+            index_to_node[node.index] = node
+
+        for n in additional_nodes:
+            index_to_node[n] = additional_nodes[n]
+
+        return index_to_node
 
     def generate_dot_notation(self, tree_name):
         root_id = tree_name + self.short_index
