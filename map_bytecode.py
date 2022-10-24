@@ -9,8 +9,7 @@ import copy
 import difflib
 import dis
 import types
-from collections import deque
-
+from collections import deque, defaultdict
 
 import muast
 
@@ -31,12 +30,15 @@ class Opdata:
         self.arg = instr.arg
         self.mapped_node_id = None
 
+    # The op id is a unique and consistent identifier of this op
+    # within the context of the specific code that generated the bytecode
+    # (so regenerating bytecode from the same code will produce ops that have the same ids)
     @property
     def id(self):
         return self.co_name, self.offset
 
     def __str__(self):
-        return f'{self.co_name}\t{self.offset} {self.instr.opname} {self.instr.argval}\t{self.mapped_node_id}'
+        return f'{self.co_name}\t{self.offset} {self.instr.opname} {self.instr.argval}'
 
 
 # A class which represents code as a flat list of bytecode ops
@@ -166,7 +168,7 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
     orig_op_to_curr_op = {o.id: o.id for o in orig_ops}
     # map of op id (for original op list from original tree) to node in the original tree
     # (nodes normally represented by node ids; except if debug_mapping is on)
-    orig_op_to_node = {}
+    orig_op_to_node = defaultdict(str)
 
     for del_node in deletion_order:
 
@@ -197,15 +199,16 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
 
         # Process each original op that still has a mapping to some op in the current oplist
         for orig_op_id in orig_op_to_curr_op:
+
+            # (1) map changed ops back to the matching ops in the original oplist,
+            # and map that original op to the node that changed it (i.e. the current node we are working with)
             curr_op_id = orig_op_to_curr_op[orig_op_id]
+            # if this op changed from curr_ops to next_ops, AND it hasn't already been mapped to a node
+            # that changed it previously, then map the corresponding original op to this current node.
+            if curr_op_id in changed_ops and orig_op_id not in orig_op_to_node:
+                orig_op_to_node[orig_op_id] = annotation
 
-            # propagate changed ops backwards to orig_ops from curr_ops
-            if curr_op_id in changed_ops and (orig_ops.get_by_id(orig_op_id).mapped_node_id is None):
-                # TODO: prev_ops.get_by_id(curr_op_id).mapped_node_id should always be the current del_node_id;
-                #  so the propagation/storage of mapped_node_ids may not be necessary?..
-                orig_ops.get_by_id(orig_op_id).mapped_node_id = curr_ops.get_by_id(curr_op_id).mapped_node_id
-
-            # propagate orig_to_curr forward to point to next_ops (soon to become curr_ops)
+            # (2) propagate orig_to_curr forward to point to next_ops (soon to become curr_ops)
             if orig_op_to_curr_op[orig_op_id] in curr_to_next_op_map:
                 orig_op_to_curr_op[orig_op_id] = curr_to_next_op_map[orig_op_to_curr_op[orig_op_id]]
 
@@ -222,7 +225,7 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
     #   Try special case for literals - change instead of delete?..
 
     # TODO: return just the mapping between AST nodes and bytecode instruction ids
-    return orig_ops
+    return orig_op_to_node
 
 
 # Temporary testing code:
@@ -234,10 +237,12 @@ def kthDigit(x, k):
 """
 
 tree = muast.MutableAst(ast.parse(code))
+tree_ops = FlatOpsList(tree)
 
 out = gen_ops_with_node_mapping(tree, debug_mapping=True)
 
-for op in out:
-    print(op.id, op)
-op_dict = {op.id: op.mapped_node_id for op in out}
-print(op_dict)
+
+for op in tree_ops:
+    print(op.id, op, out[op.id])
+
+
