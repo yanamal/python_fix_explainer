@@ -28,7 +28,6 @@ class Opdata:
         self.offset = instr.offset
         self.opcode = instr.opcode
         self.arg = instr.arg
-        self.mapped_node_id = None
 
     # The op id is a unique and consistent identifier of this op
     # within the context of the specific code that generated the bytecode
@@ -118,27 +117,17 @@ def compare_op_lists(op_list1: FlatOpsList, op_list2: FlatOpsList, changed_node_
                     and o1.arg not in dis.hasjrel \
                     and o1.arg not in dis.hasjabs \
                     and o1.instr.argval != o2.instr.argval:
-                # this op should also count as edited on both sides, because argval changed.
+                # this op should also count as edited, because argval changed.
                 # (for example, the changed AST node represented a constant or literal that was the argument of an op)
                 # Don't count arg as having changed for the following kinds of ops:
                 #  - anything when argval is a pointer to a complex (unpickleable) object, e.g. code object
                 #  - ops whose args are addresses/offsets
-                o1.mapped_node_id = changed_node_id
                 changed_ops.add(o1.id)
-                o2.mapped_node_id = changed_node_id
-            else:
-                # if the two ops are mapped to each other, and not changed by this edit, propagate edited info forward
-                o2.mapped_node_id = o1.mapped_node_id
 
     # find all ops that were unmapped, and record them as edited in this edit:
     for o1 in op_list1:
         if o1.id not in op_map:
             changed_ops.add(o1.id)
-            o1.mapped_node_id = changed_node_id
-
-    for o2 in op_list2:
-        if o2.id not in mapped_ops2:
-            o2.mapped_node_id = changed_node_id
 
     return op_map, changed_ops
 
@@ -168,7 +157,7 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
     orig_op_to_curr_op = {o.id: o.id for o in orig_ops}
     # map of op id (for original op list from original tree) to node in the original tree
     # (nodes normally represented by node ids; except if debug_mapping is on)
-    orig_op_to_node = defaultdict(str)
+    orig_op_to_node = defaultdict(lambda: None)
 
     for del_node in deletion_order:
 
@@ -182,10 +171,6 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
         # TODO: detect if code string is the same as previous time around (node removal makes no visible change)
 
         # recalculate ops
-        # TODO: is this iteration shifted? prev_ops==orig_ops the first time around, so logic propagating prev_ops
-        #   does nothing the first iteration; but the last iteration operating on prev_ops misses mapped_node_id changes
-        #   recorded in curr_ops?..
-        #   Then again, it may not matter because the last node to be deleted is always the "blank" Module?..
         next_ops = FlatOpsList(tree_copy)
 
         # set the annotation that the changed ops will map to (normally node id; when debugging, node code)
@@ -221,8 +206,11 @@ def gen_ops_with_node_mapping(source_tree: muast.MutableAst, debug_mapping=False
 
     # TODO: where do the function parameter definitions get mapped to? do they not have a direct runtime effect?..
 
-    # TODO: what about function names? they seem to get mapped to the def node?..
-    #   Try special case for literals - change instead of delete?..
+    # TODO: what about function names? they seem to get mapped to the FunctionDef node?..
+    #   This is because they are "absorbed" into the FunctionDef node by the MutableAst simplification logic.
+    #   This normally works well because in the code, there is not much distinction between the literal value and the
+    #   ast node that represents it (e.g. Num, Load Identifier, etc.)
+    #   maybe certain literals should be whitelisted to remain their own nodes?..
 
     # TODO: return just the mapping between AST nodes and bytecode instruction ids
     return orig_op_to_node
@@ -238,11 +226,15 @@ def kthDigit(x, k):
 
 tree = muast.MutableAst(ast.parse(code))
 tree_ops = FlatOpsList(tree)
+tree_index_to_node = tree.gen_index_to_node()
 
-out = gen_ops_with_node_mapping(tree, debug_mapping=True)
+ops_to_nodes = gen_ops_with_node_mapping(tree, debug_mapping=False)
 
 
 for op in tree_ops:
-    print(op.id, op, out[op.id])
+    print(op.id, op, ops_to_nodes[op.id])
+    if ops_to_nodes[op.id]:
+        print(tree_index_to_node[ops_to_nodes[op.id]].name)
 
+tree.write_dot_file("test_tree", "test.dot")
 

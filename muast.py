@@ -489,7 +489,7 @@ class MutableAst:
 
         return index_to_node
 
-    def generate_dot_notation(self, tree_name):
+    def generate_dot_notation(self, tree_name: str):
         root_id = tree_name + self.short_index
         color_string = ''
         if hasattr(self, 'color'):
@@ -499,10 +499,10 @@ class MutableAst:
             child = self.children_dict[child_i]
             child_id = tree_name + child.short_index
             dot_string += child.generate_dot_notation(tree_name)
-            dot_string += f'{root_id} -> {child_id} [label="{child_i}"];\n'  # [label="Some Label"]
+            dot_string += f'{root_id} -> {child_id} [label="{child_i}"];\n'
         return dot_string
 
-    def write_dot_file(self, tree_name, filename: str):
+    def write_dot_file(self, tree_name: str, filename: str):
         # TODO: use pydot?
         with open(f'{filename}', 'w') as f:
             f.write(f'''
