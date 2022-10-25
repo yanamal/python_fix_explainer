@@ -8,6 +8,7 @@ import gen_edit_script
 import map_asts
 import muast
 import simplify
+import map_bytecode
 
 # logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
@@ -45,7 +46,7 @@ print('student code (from AST):')
 print(code_tree)  # str conversion attempts to convert AST back to code
 code_tree.write_dot_file('sample', '../out/sample.dot')  # draw AST of code in graphviz format (.dot file)
 
-### Sample 2: generate mapping aand edit script between pairs of code (student code and each of two fixed versions)
+### Sample 2: generate mapping and edit script between pairs of code (student code and each of two fixed versions)
 for fixed_code in [fixed_code1, fixed_code2]:
     print()
     print()
@@ -76,4 +77,19 @@ for fixed_code in [fixed_code1, fixed_code2]:
     simplified = simplify.simplify_edit_script(source_tree, kt_digit_unit_tests, edit_script)
     print('Code after simplifying:')
     print(simplified.apply(source_tree))
+
+
+### Sample 3: generate (and use) mapping from bytecode op ids to AST nodes that (probably) produced them
+
+student_tree = muast.MutableAst(ast.parse(student_code))
+tree_ops = map_bytecode.FlatOpsList(student_tree)
+tree_index_to_node = student_tree.gen_index_to_node()
+
+ops_to_nodes = map_bytecode.gen_op_to_node_mapping(student_tree)
+
+for op in tree_ops:
+    print(op.id, op, ops_to_nodes[op.id])
+    if ops_to_nodes[op.id]:
+        print(tree_index_to_node[ops_to_nodes[op.id]].name)  # name property of the node
+        print(tree_index_to_node[ops_to_nodes[op.id]])  # node converted to string (usually code)
 
