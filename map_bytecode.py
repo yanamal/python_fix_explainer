@@ -12,11 +12,7 @@ import types
 from collections import deque, defaultdict
 
 import muast
-
-
-# types of possible (resolved) bytecode values which are not pickleable;
-# we probably don't care about them when instrumenting tracing
-unpickleable = {types.CodeType, types.MethodType, types.ModuleType, types.FunctionType}
+from bytecode_metadata import unpickleable
 
 
 # A class for easier tracking of individual bytecode instructions
@@ -211,7 +207,6 @@ def gen_op_to_node_mapping(source_tree: muast.MutableAst, debug_mapping=False):
     #   ast node that represents it (e.g. Num, Load Identifier, etc.)
     #   maybe certain literals should be whitelisted to remain their own nodes?..
 
-    # TODO: return just the mapping between AST nodes and bytecode instruction ids
     return orig_op_to_node
 
 

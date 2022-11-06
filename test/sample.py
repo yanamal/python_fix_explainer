@@ -9,6 +9,7 @@ import map_asts
 import muast
 import simplify
 import map_bytecode
+import get_runtime_effects
 
 # logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 
@@ -92,4 +93,30 @@ for op in tree_ops:
     if ops_to_nodes[op.id]:
         print(tree_index_to_node[ops_to_nodes[op.id]].name)  # name property of the node
         print(tree_index_to_node[ops_to_nodes[op.id]])  # node converted to string (usually code)
+
+
+### Sample 4: instrument student code and run it against a unit test
+### to get the sequence of bytecode ops that were executed, and the values they produced.
+
+# Run code and ONE of the unit tests to get the runtime effect:
+run_result: get_runtime_effects.TracedRunResult = get_runtime_effects.run_test(student_code, kt_digit_unit_tests[1])
+
+# parse and print out result:
+print('Completion status of running code (or error):', run_result.run_outcome)
+print('Did unit test pass?', run_result.eval_result)
+print()
+for traced_op in run_result.ops_list:
+    print(f'Executed op {traced_op.op_id}, pushed values: {traced_op.pushed_values}')
+
+    # TODO: helper function to go from op_id to human readable bytecode representation
+
+    # we can use the bytecode-to-node mapping from sample 3 to look up how each executed op_id is represented in code
+    op_node_id = ops_to_nodes[traced_op.op_id]
+    if op_node_id:
+        # then look up node by id, if it exists
+        # the executed op may not be mapped to a tree node, e.g. if it's a default return which happens in every program
+        op_node_representation = tree_index_to_node[op_node_id].to_compileable_str()
+        print('code corresponding to executed op:')
+        print(op_node_representation)
+    print()
 
