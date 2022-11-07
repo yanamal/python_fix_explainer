@@ -109,7 +109,7 @@ def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst):
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
     should_continue = True
-    rename_weight = 1.0  # the first time around, prefer renaming to delete+add (if < 2.0) TODO: make parameter?
+    rename_weight = 2.0  # the first time around, prefer renaming to delete+add (if < 2.0) TODO: make parameter?
     use_assign_depth = True
     # i = 0
 
@@ -188,5 +188,4 @@ def get_trees_and_mapping(source_text, dest_text):
 
     index_mapping = generate_mapping(source_tree, dest_tree)
 
-    draw_comparison(source_tree, dest_tree, index_mapping, f'../out/test_APTED_gen.dot')
     return source_tree, dest_tree, index_mapping

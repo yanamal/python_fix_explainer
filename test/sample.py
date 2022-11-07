@@ -10,7 +10,7 @@ import muast
 import simplify
 import map_bytecode
 import get_runtime_effects
-import rutime_comparison
+import runtime_comparison
 
 # logging.basicConfig(stream=sys.stderr, level=logging.DEBUG)
 

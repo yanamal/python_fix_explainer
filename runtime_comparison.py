@@ -138,14 +138,11 @@ class RuntimeComparison:
         return str(node)
 
     def __str__(self):
-        # "Deviation point" is index in dest trace after which values permanently deviate
         return f'Unit test: {self.test_string}\n' \
                f'test {"finished" if self.run_completed else f"did not finish ({self.run_status})"}\n' \
                f'test {"passed" if self.test_passed else "did not pass"}\n' \
-               f'Deviation point (index in dest trace): {self.last_matching_val_dest} ' \
-               f'out of {len(self.dest_trace.ops_list)}\n' \
-               f'Last correctly evaluated expression expression (at deviation point):\n' \
-               f'{self.get_last_matching_expression()}'
+               f'Deviation point (after this op, calculations in the two versions diverge): ' \
+               f'{self.last_matching_val_dest} out of {len(self.dest_trace.ops_list)}\n'
 
     def __lt__(self, other: 'RuntimeComparison'):
         # This RuntimeComparison is "less than" another RuntimeComparison
@@ -204,7 +201,7 @@ class RuntimeComparison:
             return f'The run completed in {self_name}, but did not complete in {other_name} ' \
                    f'({other.run_status}).'
         if self.test_passed and not other.test_passed:
-            return f'The test is passed in {self_name}, but not in {other_name}.'
+            return f'The test passed in {self_name}, but not in {other_name}.'
         if self.last_matching_val_dest > other.last_matching_val_dest:
             node = self.get_last_matching_expression()
             return f'The following expression evaluated correctly in {self_name}, ' \
@@ -217,10 +214,10 @@ class RuntimeComparison:
         if self == new_version:
             return 'The new version of the code performed the same as the old version.'
         elif self < new_version:
-            return 'The new version of the code performed better than the old version:\n' + \
+            return 'The new version of the code performed better than the old version: \n' + \
                    new_version.describe_improvement(self, 'the new version', 'the old version')
         else:  # self > new_version
-            return 'The new version of the code performed worse than the old version:' + \
+            return 'The new version of the code performed worse than the old version: \n' + \
                    self.describe_improvement(new_version, 'the old version', 'the new version')
 
 
@@ -240,7 +237,7 @@ def compare_comparisons(orig_comps: List[RuntimeComparison], new_comps: List[Run
             same += 1
 
     if new_better + new_worse == 0:
-        return 'same'
+        return 'the same'
     if new_worse == 0:
         return 'better'
     if new_better == 0:
