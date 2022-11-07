@@ -208,24 +208,3 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
     #   maybe certain literals should be whitelisted to remain their own nodes?..
 
     return orig_op_to_node
-
-
-# Temporary testing code:
-code = """
-def kthDigit(x, k):
-    kthDigLeft = x%(10**(k+1))
-    kthDigRight = kthDigLeft//(10**k)
-    return kthDigRight
-"""
-
-tree = muast.MutableAst(ast.parse(code))
-tree_ops = FlatOpsList(tree)
-tree_index_to_node = tree.gen_index_to_node()
-
-ops_to_nodes = gen_op_to_node_mapping(tree, debug_mapping=False)
-
-for op in tree_ops:
-    print(op.id, op, ops_to_nodes[op.id])
-    if ops_to_nodes[op.id]:
-        print(tree_index_to_node[ops_to_nodes[op.id]].name)
-

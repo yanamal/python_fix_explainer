@@ -7,40 +7,26 @@ import muast
 import runtime_comparison
 
 student_code = '''
-def isEvenPositiveInt(x):
-    if x == 0:
-        return False
-    elif x % 2 == 0 and x > 0 and Type(x) == Type(int):
-        return True
-    else:
-        return False
+def oneToN(n):
+    for n in range (1,n+1):
+        n += str(n)
+    return n
 '''
 
 
 problem_unit_tests = [
-    'isEvenPositiveInt(2) == True',
-    'isEvenPositiveInt(2040608) == True',
-    'isEvenPositiveInt(21) == False',
-    'isEvenPositiveInt(0) == False',
-    'isEvenPositiveInt("yikes!") == False',
+    'oneToN(5) == "12345"',
+    'oneToN(1) == "1"',
+    'oneToN(10) == "12345678910"',
 ]
 
 correct_versions = [
     '''
-def isEvenPositiveInt(x):
-    if type(x) == int and x % 2 == 0 and x > 0:
-        return True
-    else:
-        return False
-    ''',
-    '''
-def isEvenPositiveInt(x):
-    if type(x) != int:
-        return False
-    isEven = x % 2 == 0
-    isPositive = x > 0
-    test = isEven and isPositive
-    return test
+def oneToN(n):
+    s = ''
+    for digit in range(1,n+1):
+        s += str(digit)
+    return s
     '''
 ]
 
@@ -48,6 +34,7 @@ print('Finding fixes for student code:')
 print(student_code)
 print()
 student_tree = muast.MutableAst(ast.parse(student_code))
+student_tree.write_dot_file('student_code', 'out/end_to_end_student_ast.dot')
 
 fixed_versions = []
 for correct_version in correct_versions:
@@ -94,7 +81,7 @@ for fix in best_edit_script.dependent_blocks:
     just_the_fix = best_edit_script.filtered_copy(lambda e: e.short_string not in fix)
     partial_solution = just_the_fix.apply(student_tree)
     print('Current fix changes student code to:')
-    print(partial_solution)
+    print(partial_solution.to_compileable_str())
     fix_code_comparisons = [
         runtime_comparison.RuntimeComparison(partial_solution, best_fixed_version, unit_test)
         for unit_test in problem_unit_tests]
