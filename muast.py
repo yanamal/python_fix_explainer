@@ -325,7 +325,7 @@ class MutableAst:
 
         next_assign_depth = (assign_depth + 1) if (assign_depth is not None) else None
 
-        self.children_dict = {}
+        self.children_dict: Dict[str, 'MutableAst'] = {}
         if not shallow:
             for c_key, c_ast in ast_children(py_ast).items():
                 if c_key in ignore_children:

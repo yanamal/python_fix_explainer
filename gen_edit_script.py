@@ -321,6 +321,10 @@ class EditScript:
             self.recalc_dependencies()
         return self._dependency_graph
 
+    @property
+    def dependent_blocks(self):
+        return [set(es) for es in nx.connected_components(self.dependencies.to_undirected())]
+
 
 # Generate the edit script - a list of edits (Edit objects) which need to happen in that order to change
 # source_tree to exactly match dest_tree, given the already generated index_mapping between them.

@@ -50,10 +50,10 @@ def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit
 # Repeat until no more blocks can be removed.
 def simplify_dependent_blocks(
         source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
-    potential_removals = [set(es) for es in nx.connected_components(edit_script.dependencies.to_undirected())]
+    potential_removals = edit_script.dependent_blocks
 
     # sort in descending order based on earliest edit in the block.
-    # TODO: This doesn't do anything sensible since indices are no longer sensbily ordrered integers.
+    # TODO: This doesn't do anything sensible since indices are no longer sensbily orderered integers.
     #  What was it for again?..
     # edit_str_to_index = {e.short_string: i for i, e in enumerate(edit_script.edits)}
     # potential_removals.sort(key=lambda es: min([edit_str_to_index[e] for e in es]), reverse=True)
