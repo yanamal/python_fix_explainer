@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "python_fix_explainer"
+version = "0.0.1"
+authors = [
+  { name="Yana Malysheva", email="TODO@example.com" },
+]
+description = "TODO"
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yanamal/python_fix_explainer/"
