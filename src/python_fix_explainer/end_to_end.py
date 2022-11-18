@@ -4,7 +4,7 @@ import gen_edit_script
 import map_asts
 import simplify
 import muast
-import runtime_comparison
+import runtime_comparison as runtime_comparison
 
 student_code = '''
 def isEvenPositiveInt(n):

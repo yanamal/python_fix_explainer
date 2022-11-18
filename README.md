@@ -12,4 +12,8 @@ Try to generate a (new) corrected solution that is close to the incorrect soluti
 
 Present this correction as a series of fixes, and provide explanation about how this fix improves things: how does it change what the code does when it runs?
 
+TODO: 
+- folloeing this tutorial to make a package
+
+
 
