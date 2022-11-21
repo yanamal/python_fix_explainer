@@ -503,7 +503,7 @@ class MutableAst:
         return dot_string
 
     def write_dot_file(self, tree_name: str, filename: str):
-        # TODO: use pydot?
+        # TODO: use pydot or graphviz library?
         with open(f'{filename}', 'w') as f:
             f.write(f'''
                         digraph G
