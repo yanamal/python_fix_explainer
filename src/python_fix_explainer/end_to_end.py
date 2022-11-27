@@ -40,6 +40,8 @@ print('Finding fixes for student code:')
 print(student_code)
 print()
 student_tree = muast.MutableAst(ast.parse(student_code))
+annotated_html_string = muast.gen_annotated_html(student_tree)
+print(annotated_html_string)
 
 fixed_versions = []
 for correct_version in correct_versions:

@@ -18,6 +18,7 @@ from typing import List, Dict
 import astor.code_gen as cg
 import astor
 import ast
+import asttokens
 import multiprocessing
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 
@@ -300,7 +301,6 @@ class MutableAst:
         # remember if this node is actually a list, because certain things only make sense to do with lists (e.g.
         # insert into 'middle of' list)
         self.isList = isinstance(py_ast, list)
-        # TODO: instead, isLeaf? (don't look at children though, e.g. in shallow node creation that could be weird...)
         self.isLiteral = (not self.isList) and (not hasattr(py_ast, '_fields'))
 
         if self.isList:
@@ -365,6 +365,8 @@ class MutableAst:
             self.name += f': {self.key_in_parent} of {self.parent.nodeType}'
 
     def simplify_node(self):
+        # TODO: adjust cost of "renaming" simplified node based on how many distinct things it actually contains?
+        #  e.g. simplified comparison absorbs all the comparison operators
         # for some types of nodes, simplify the tree by "pulling up" known-leaf children,
         # and ignoring them in the subsequent tree structure.
         ignore_children = set()
@@ -396,6 +398,10 @@ class MutableAst:
             # even if this is not a variable load/store, ignore ctx parameter (but pull up slightly differently)
             self.name += f'(ctx={type(self.ast.ctx).__name__})'
             ignore_children.add('ctx')
+
+        if type(self.ast).__name__ == 'Compare':
+            self.name += f'operators: {str(self.ast.ops)}'
+            ignore_children.add('ops')
 
         # find and "pull up" any other children that are literals:
         if hasattr(self.ast, '_fields'):
@@ -711,3 +717,41 @@ def postorder(tree: MutableAst):
     for c in reversed(tree.children):
         yield from postorder(c)
     yield tree
+
+
+# given a MutableAst object which represents a complete bit of code,
+# generate html of the code, marked up with spans annotating code that "belongs" to specific nodes in the AST.
+def gen_annotated_html(tree: MutableAst):
+    # We need to use yet another third-party library, asttokens, to be able to go from ast node to positions in code.
+    # And in order to make asttokens work correctly, we need to start from scratch:
+    # Regenerate a fresh version of the text representation from the MutableAst, then generate the ast from that,
+    # and a new MutableAst from the python ast.
+    # Then we really hope that the new MutableAst still exactly matches the original one, and walk through them
+    # zipped together, to get the id/parent/etc. data from the original, and the text positions from the new one.
+
+    txt = str(tree)
+    py_ast = ast.parse(txt)
+    atok = asttokens.ASTTokens(str(txt), tree=py_ast)
+    new_tree = MutableAst(py_ast)
+
+    tags = []
+
+    for i, (new_node, orig_node) in enumerate(zip(breadth_first(new_tree), breadth_first(tree))):
+        if not new_node.isList:
+            (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
+                atok.get_text_positions(new_node.ast, padded=False)
+            attributes = f'id="{orig_node.index}"'
+            if orig_node.parent and orig_node.parent.isList:
+                attributes += f' parent_list_id="{orig_node.parent.index}"'
+            tags.append((start_lineno, start_col_offset, i, f'<span {attributes}>'))
+            tags.append((end_lineno, end_col_offset, i, f'</span>'))
+            # TODO: try to ensure that start tags and end tags are ordered correctly when they are in the same spot
+
+    code_lines = txt.splitlines()
+    tags.sort(reverse=True)
+    for tag_data in tags:
+        lineno, col_offset, _order_helper, tag = tag_data
+        lineno -= 1  # line numbers are 1-indexed?!..
+        code_lines[lineno] = code_lines[lineno][:col_offset] + tag + code_lines[lineno][col_offset:]
+
+    return '\n'.join(code_lines)

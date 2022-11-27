@@ -44,6 +44,7 @@ class CompareConfig(Config):
             # (also consider nodeLists of different kinds of nodes to be different types)
             # TODO: consider Binop a special case where the op has to match?
             #  or some other special weight for changing op?
+            #  or apply rename_weight even when nodeType matches? (what was that check for?)
             return self.rename_weight * base_cost
         # TODO: maybe changing literals should be more expensive, to map constants onto each other better?..
         #  But off-by-one errors will be harder to detect then.
@@ -109,7 +110,7 @@ def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst):
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
     should_continue = True
-    rename_weight = 2.0  # the first time around, prefer renaming to delete+add (if < 2.0) TODO: make parameter?
+    rename_weight = 1.9  # the first time around, prefer renaming to delete+add (if < 2.0) TODO: make parameter?
     use_assign_depth = True
     # i = 0
 
