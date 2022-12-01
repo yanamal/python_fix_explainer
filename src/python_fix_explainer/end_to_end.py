@@ -4,6 +4,7 @@ import gen_edit_script
 import map_asts
 import simplify
 import muast
+import tree_to_html
 import runtime_comparison as runtime_comparison
 
 student_code = '''
@@ -40,7 +41,9 @@ print('Finding fixes for student code:')
 print(student_code)
 print()
 student_tree = muast.MutableAst(ast.parse(student_code))
-annotated_html_string = muast.gen_annotated_html(student_tree)
+
+print('annotated html for student code:')
+annotated_html_string = tree_to_html.gen_annotated_html(student_tree, id_prefix='source_')
 print(annotated_html_string)
 
 fixed_versions = []
@@ -62,6 +65,16 @@ for correct_version in correct_versions:
     fixed_tree = simplified_script.apply(student_tree)
     print('Solution after applying simplified edit script:')
     print(fixed_tree)
+
+    print('annotated html for student code (with edit markup for this edit script):')
+    annotated_html_string = tree_to_html.gen_annotated_html(
+        student_tree, id_prefix='source_', edit_script=simplified_script)
+    print(annotated_html_string)
+
+    print('annotated html for corrected version of code (with edit markup for this edit script):')
+    annotated_html_string = tree_to_html.gen_annotated_html(
+        fixed_tree, id_prefix='dest_', edit_script=simplified_script)
+    print(annotated_html_string)
 
     fixed_versions.append((simplified_script.edit_distance, simplified_script, fixed_tree))
 
