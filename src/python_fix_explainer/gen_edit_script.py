@@ -177,6 +177,9 @@ class EditScript:
         #  (e.g. inserting into a list of assignment targets which later gets moved to a list of statements)
         #  (only super important if we allow moving lists to different "types" of lists)
 
+        # TODO: inserts and moves (into lists) may depend on align step for their neighbors,
+        #  to determine who to insert/move next to.
+
         for edit in self.edits:
             if edit.stage == Stage.DELETE:
                 # in-edit-script-order dependency: (delete <- delete) or (move <- delete)

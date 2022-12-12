@@ -83,6 +83,12 @@ print(f'The best(shortest) edit script has {best_edit_distance} edits and result
 print(best_fixed_version)
 print()
 
+annotated_html_string_source = tree_to_html.gen_annotated_html(
+    student_tree, id_prefix='source_', edit_script=best_edit_script)
+
+annotated_html_string_dest = tree_to_html.gen_annotated_html(
+    best_edit_script.apply(student_tree), id_prefix='dest_', edit_script=best_edit_script)
+
 print(f'This edit script can be split into {len(best_edit_script.dependent_blocks)} fixes')
 
 print()
@@ -113,3 +119,7 @@ for fix in best_edit_script.dependent_blocks:
         print(orig.describe_improvement_or_regression(fixed))
     print()
 
+print({
+    'source': annotated_html_string_source,
+    'dest': annotated_html_string_dest
+})
