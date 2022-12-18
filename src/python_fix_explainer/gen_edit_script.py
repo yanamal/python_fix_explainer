@@ -326,6 +326,9 @@ class EditScript:
 
     @property
     def dependent_blocks(self):
+        # A list of blocks of edits,
+        # where the edits within a block are connected by dependencies,
+        # and where each block is represented as a set of the edit's 'short string'
         return [set(es) for es in nx.connected_components(self.dependencies.to_undirected())]
 
 

@@ -5,6 +5,7 @@
 # which buggy-to-correct comparison is better/worse in terms of the buggy version being closer/further away
 # from the corrected?
 import difflib
+from enum import Enum
 from functools import total_ordering
 from typing import List
 from dataclasses import dataclass
@@ -221,6 +222,17 @@ class RuntimeComparison:
                    self.describe_improvement(new_version, 'the old version', 'the new version')
 
 
+class Effect(Enum):
+    WORSE = 'worse'
+    SAME = 'the same'
+    MIXED = 'mixed'
+    BETTER = 'better'
+
+    def __lt__(self, other):
+        member_list = list(self.__class__)
+        return member_list.index(self) < member_list.index(other)
+
+
 # given sets of comparison data of running two versions of code against the same correct version,
 # on the same set of unit tests,
 # decide whether the new version is a strict improvement over the old version
@@ -237,9 +249,9 @@ def compare_comparisons(orig_comps: List[RuntimeComparison], new_comps: List[Run
             same += 1
 
     if new_better + new_worse == 0:
-        return 'the same'
+        return Effect.SAME
     if new_worse == 0:
-        return 'better'
+        return Effect.BETTER
     if new_better == 0:
-        return 'worse'
-    return 'mixed'
+        return Effect.WORSE
+    return Effect.MIXED
