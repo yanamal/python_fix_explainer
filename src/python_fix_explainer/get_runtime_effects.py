@@ -9,7 +9,6 @@
 import dis
 import multiprocessing
 import sys
-
 from bytecode import Instr, Bytecode, ConcreteInstr
 from dataclasses import dataclass
 import types

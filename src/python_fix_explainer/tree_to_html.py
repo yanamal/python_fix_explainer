@@ -1,6 +1,5 @@
 import ast
 from collections import defaultdict
-
 import asttokens
 
 from muast import MutableAst, breadth_first

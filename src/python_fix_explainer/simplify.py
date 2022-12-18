@@ -1,10 +1,8 @@
 # Logic for simplifying an edit script
 # (removing some subset of edits s.t. the final edited code is still correct according to some set of tests)
 # TODO: consider re-introducing constant unrolling option (is it still necessary with the "=" mapping heuristic?)
-import copy
 import logging
 from typing import List
-import networkx as nx
 
 from muast import MutableAst
 from gen_edit_script import EditScript, Edit, Action

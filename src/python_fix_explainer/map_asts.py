@@ -2,10 +2,13 @@
 # The mapping mostly tries to optimize for a shorter resulting edit script,
 # though there are some heuristics in place to map more "related" parts of the code together.
 
-from muast import MutableAst
+
 import ast
 import copy
 from apted import APTED, Config
+
+
+from muast import MutableAst
 
 
 class CompareConfig(Config):
