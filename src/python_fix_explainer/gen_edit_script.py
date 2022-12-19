@@ -6,11 +6,11 @@ from collections import defaultdict
 from enum import Enum, auto
 from typing import List, Dict, Callable
 import networkx as nx
-
-import muast
-import map_asts
 import copy
 from difflib import SequenceMatcher
+
+from . import muast
+from . import map_asts
 
 
 # possible edit actions

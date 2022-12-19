@@ -10,10 +10,9 @@ from functools import total_ordering
 from typing import List
 from dataclasses import dataclass
 
-
-import muast
-import get_runtime_effects
-import map_bytecode
+from . import muast
+from . import get_runtime_effects
+from . import map_bytecode
 
 
 # Given a sequence of ops executed at runtime, and an op-to-node_id mapping,

@@ -4,9 +4,9 @@ build-backend = "hatchling.build"
 
 [project]
 name = "python_fix_explainer"
-version = "0.0.1"
+version = "0.0.3"
 authors = [
-  { name="Yana Malysheva", email="yana.m@wustl.edu, kuzavra@gmail.com" },
+  { name="Yana Malysheva", email="kuziavra@gmail.com" },
 ]
 description = "Generate fixes for incorrect python code, given data about the problem being solved"
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
     "astor>=0.8.1",
     "bytecode>=0.12.0",
     "networkx>=2.5",
-    "asttokens=>2.1.0",
+    "asttokens>=2.0.5",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

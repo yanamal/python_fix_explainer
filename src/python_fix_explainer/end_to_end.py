@@ -1,11 +1,11 @@
 import ast
 
-import gen_edit_script
-import map_asts
-import simplify
-import muast
-import tree_to_html
-import runtime_comparison as runtime_comparison
+from . import gen_edit_script
+from . import map_asts
+from . import simplify
+from . import muast
+from . import tree_to_html
+from . import runtime_comparison
 
 student_code = '''
 def isEvenPositiveInt(n):

@@ -4,8 +4,8 @@
 import logging
 from typing import List
 
-from muast import MutableAst
-from gen_edit_script import EditScript, Edit, Action
+from .muast import MutableAst
+from .gen_edit_script import EditScript, Edit, Action
 
 
 # Simplification step 1: find and undo edits that just rename variables

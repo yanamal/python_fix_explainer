@@ -11,8 +11,8 @@ import dis
 import types
 from collections import deque, defaultdict
 
-import muast
-from bytecode_metadata import unpickleable
+from . import muast
+from .bytecode_metadata import unpickleable
 
 
 # A class for easier tracking of individual bytecode instructions

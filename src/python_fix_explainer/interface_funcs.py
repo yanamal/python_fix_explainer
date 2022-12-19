@@ -1,14 +1,14 @@
 import ast
 from typing import List
 
-import muast
-import map_asts
-import gen_edit_script
-import simplify
-import runtime_comparison
-import tree_to_html
-import get_runtime_effects
-import map_bytecode
+from . import muast
+from . import map_asts
+from . import gen_edit_script
+from . import simplify
+from . import runtime_comparison
+from . import tree_to_html
+from . import get_runtime_effects
+from . import map_bytecode
 
 
 def generate_edit_scripts(incorrect_code: str, correct_versions: List[str]):
@@ -141,36 +141,3 @@ def fix_code(incorrect_code: str,
             'dest': final_html
         })
     print(code_sequence)
-
-
-student_code = '''
-def isEvenPositiveInt(n):
-    if n % 2 == 0 and n > 0 and Type(n) == Type(int):
-        return True
-'''
-
-
-unit_tests = [
-    'isEvenPositiveInt(2) == True',
-    'isEvenPositiveInt(2040608) == True',
-    'isEvenPositiveInt(21) == False',
-    'isEvenPositiveInt(0) == False',
-    'isEvenPositiveInt("yikes!") == False',
-]
-
-correct = [
-    '''
-def isEvenPositiveInt(x):
-    if x == 0:
-        return False
-    if type(x) == int and x % 2 == 0 and x > 0:
-        return True
-    return False
-    ''',
-    '''
-def isEvenPositiveInt(n):
-    return type(n) == int and n > 0 and n % 2 == 0 
-    '''
-]
-
-fix_code(student_code, unit_tests, correct)

@@ -2,8 +2,8 @@ import ast
 from collections import defaultdict
 import asttokens
 
-from muast import MutableAst, breadth_first
-from gen_edit_script import EditScript, Action
+from .muast import MutableAst, breadth_first
+from .gen_edit_script import EditScript, Action
 
 
 action_classes = {

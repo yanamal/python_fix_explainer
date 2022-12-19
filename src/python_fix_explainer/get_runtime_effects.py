@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import types
 from typing import List, Dict, Tuple
 
-import bytecode_metadata
+from . import bytecode_metadata
 
 
 # small dataclass for tracking data about a bytecode op related to instrumenting those ops to see their stack effect
@@ -300,7 +300,7 @@ def run_test_with_potential_timeout(code: str, test_string: str):
 # wrapper for running code with unit test which times out after a short amount of time,
 # in case the student code has an infinite loop
 def run_test(code: str, test_string: str):
-    with multiprocessing.Pool(processes=2) as pool:
+    with multiprocessing.Pool(processes=1) as pool:
         result = pool.apply_async(run_test_with_potential_timeout, (code, test_string))
         try:
             return result.get(timeout=0.1)

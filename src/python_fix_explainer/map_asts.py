@@ -8,7 +8,7 @@ import copy
 from apted import APTED, Config
 
 
-from muast import MutableAst
+from .muast import MutableAst
 
 
 class CompareConfig(Config):
