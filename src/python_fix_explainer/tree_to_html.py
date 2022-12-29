@@ -3,6 +3,7 @@ from collections import defaultdict
 import asttokens
 
 from .muast import MutableAst, breadth_first
+from .map_asts import generate_mapping
 from .gen_edit_script import EditScript, Action
 
 
@@ -21,8 +22,8 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     # And in order to make asttokens work correctly, we need to start from scratch:
     # Regenerate a fresh version of the text representation from the MutableAst, then generate the ast from that,
     # and a new MutableAst from the python ast.
-    # Then we really hope that the new MutableAst still exactly matches the original one, and walk through them
-    # zipped together, to get the id/parent/etc. data from the original, and the text positions from the new one.
+    # Then we try our best to match the nodes of the original and new tree to each other nd walk through them
+    # together, to get the id/parent/etc. data from the original, and the text positions from the new one.
 
     node_to_edits = defaultdict(list)
     if edit_script:
@@ -34,9 +35,19 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     atok = asttokens.ASTTokens(str(txt), tree=py_ast)
     new_tree = MutableAst(py_ast)
 
+    orig_index_to_node = tree.gen_index_to_node()
+    new_index_to_node = new_tree.gen_index_to_node()
+
     tags = []
 
-    for i, (new_node, orig_node) in enumerate(zip(breadth_first(new_tree), breadth_first(tree))):
+    # We use our ast mapping algorithm because tree and new_tree may not be identical,
+    # even though they rerpresent identical code.
+    #  sometimes the newly generated tree is structured differently from equivalent (original) tree
+    #  e.g. by default return statement is not wrapped in Expr, but it is not wrong to have it in an Expr.
+    #  and tree which came from edit script may retain Expr for shorter edit script.
+    for i, (orig_index, new_index) in enumerate(generate_mapping(tree, new_tree)):
+        new_node = new_index_to_node[new_index]
+        orig_node = orig_index_to_node[orig_index]
         if not new_node.isList:
             (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
                 atok.get_text_positions(new_node.ast, padded=False)
