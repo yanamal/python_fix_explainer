@@ -466,7 +466,7 @@ class MutableAst:
 
     def test(self, unit_test_strings: List[str]):
         # run a set of unit test strings, and catch timeout exceptions.
-        with multiprocessing.Pool(processes=2) as pool:
+        with multiprocessing.Pool(processes=1) as pool:
             result = pool.apply_async(self.test_potential_timeout, (unit_test_strings,))
             try:
                 return result.get(timeout=0.1)

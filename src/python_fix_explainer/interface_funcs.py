@@ -92,7 +92,6 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
 
 def get_run_trace(code_tree, test_string):
     code_trace = get_runtime_effects.run_test(str(code_tree), test_string)
-    print(code_trace.ops_list[-1].pushed_values)
     op_to_node = map_bytecode.gen_op_to_node_mapping(code_tree)
     node_sequence = runtime_comparison.get_runtime_node_sequence(code_trace.ops_list, op_to_node)
 
@@ -111,7 +110,6 @@ def fix_code(incorrect_code: str,
 
     # run the 3-stage pipeline to generate the sequence of explainable fixes:
     incorrect_tree, edit_scripts = generate_edit_scripts(incorrect_code, correct_versions)
-    print(get_run_trace(incorrect_tree, problem_unit_tests[0]))
     shortest_edit_script = simplify_and_choose_shortest(incorrect_tree, problem_unit_tests, edit_scripts)
     fix_sequence = generate_fix_sequence(incorrect_tree, problem_unit_tests, shortest_edit_script)
 
@@ -140,4 +138,4 @@ def fix_code(incorrect_code: str,
             'source': final_html,
             'dest': final_html
         })
-    print(code_sequence)
+    return code_sequence

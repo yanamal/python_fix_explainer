@@ -1,4 +1,4 @@
-import src.python_fix_explainer.interface_funcs
+import src.python_fix_explainer.interface_funcs as funcs
 
 
 student_code = '''
@@ -31,4 +31,6 @@ def isEvenPositiveInt(n):
     '''
 ]
 
-src.python_fix_explainer.interface_funcs.fix_code(student_code, unit_tests, correct)
+
+
+print(funcs.fix_code(student_code, unit_tests, correct))

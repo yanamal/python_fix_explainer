@@ -294,6 +294,10 @@ def run_test_with_potential_timeout(code: str, test_string: str):
 
     except Exception as e:  # noqa
         # running the code threw an exception, most likely due to bugs in student code
+        sys.settrace(None)
+        # TODO: a special case for tracing where the exception happened
+        #  (this sort of happens without sys.settrace(None) above,
+        #   but it traces this entire TracedRunResult object as a pushed value, which is unnecessary)
         return TracedRunResult(eval_result=False, ops_list=instr_code.runtime_ops_list, run_outcome=str(e))
 
 
