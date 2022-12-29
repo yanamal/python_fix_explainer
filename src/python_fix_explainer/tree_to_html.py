@@ -35,9 +35,6 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     atok = asttokens.ASTTokens(str(txt), tree=py_ast)
     new_tree = MutableAst(py_ast)
 
-    orig_index_to_node = tree.gen_index_to_node()
-    new_index_to_node = new_tree.gen_index_to_node()
-
     tags = []
 
     # We use our ast mapping algorithm because tree and new_tree may not be identical,
@@ -45,28 +42,36 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     #  sometimes the newly generated tree is structured differently from equivalent (original) tree
     #  e.g. by default return statement is not wrapped in Expr, but it is not wrong to have it in an Expr.
     #  and tree which came from edit script may retain Expr for shorter edit script.
-    for i, (orig_index, new_index) in enumerate(generate_mapping(tree, new_tree)):
-        new_node = new_index_to_node[new_index]
-        orig_node = orig_index_to_node[orig_index]
-        if not new_node.isList:
-            (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
-                atok.get_text_positions(new_node.ast, padded=False)
+    orig_index_to_node = tree.gen_index_to_node()
+    new_index_to_node = new_tree.gen_index_to_node()
+    orig_to_new_map = {orig_index: new_index for (orig_index, new_index) in generate_mapping(tree, new_tree)}
 
-            additional_classes = ''
-            for e in node_to_edits[orig_node.index]:
-                additional_classes += f' {action_classes[e.action]}'
+    # at the same time, we still want to traverse the original tree in breadth-first order,
+    # to control the order in which we process nodes that start/end in the same place (parents first)
+    for i, orig_node in enumerate(breadth_first(tree)):
+        if orig_node.index in orig_to_new_map:
+            new_index = orig_to_new_map[orig_node.index]
+            new_node = new_index_to_node[new_index]
+            # orig_node = orig_index_to_node[orig_index]
+            if not new_node.isList:
+                (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
+                    atok.get_text_positions(new_node.ast, padded=False)
 
-            attributes = f'class="ast-node{additional_classes}" ' \
-                         f'id="{id_prefix}{orig_node.index}" ' \
-                         f'data-node-id="{orig_node.index}" ' \
-                         f'data-node-name="{orig_node.name}"'
-            if orig_node.parent:
-                attributes += f' data-key={orig_node.key_in_parent}'
-                if orig_node.parent.isList:
-                    attributes += f' data-parent-list-id="{orig_node.parent.index}"'
-            tags.append((start_lineno, start_col_offset, i, f'<span {attributes}>'))
-            tags.append((end_lineno, end_col_offset, i, f'</span>'))
-            # TODO: try to ensure that start tags and end tags are ordered correctly when they are in the same spot
+                additional_classes = ''
+                for e in node_to_edits[orig_node.index]:
+                    additional_classes += f' {action_classes[e.action]}'
+
+                attributes = f'class="ast-node{additional_classes}" ' \
+                             f'id="{id_prefix}{orig_node.index}" ' \
+                             f'data-node-id="{orig_node.index}" ' \
+                             f'data-node-name="{orig_node.name}"'
+                if orig_node.parent:
+                    attributes += f' data-key={orig_node.key_in_parent}'
+                    if orig_node.parent.isList:
+                        attributes += f' data-parent-list-id="{orig_node.parent.index}"'
+                tags.append((start_lineno, start_col_offset, i, f'<span {attributes}>'))
+                tags.append((end_lineno, end_col_offset, i, f'</span>'))
+                # TODO: try to ensure that start tags and end tags are ordered correctly when they are in the same spot
 
     code_lines = txt.splitlines()
     # sort such that inserts happen from the end to the beginning,
