@@ -207,11 +207,14 @@ class Instrumented_Bytecode:
 
     # add a value that was pushed onto the stack by the last traced op
     def trace_pushed_value(self, value):
+        # TODO: actually just always convert the value to string?
+        #  or should certain objects be converted s.t. things like memory pointers don't trigger false value mismatches?
         if type(value) in bytecode_metadata.unpickleable:
             # if the value is unpickleable, record a dummy string instead
-            value = '<unpickleable object>'
+            # value = '<unpickleable object>'
+            value = str(value)
         last_op = self.runtime_ops_list[-1]
-        last_op.pushed_values.append(value)
+        last_op.pushed_values.append(str(value))
 
 
 # make and return a tracer function which can be passed to sys.settrace to trace and interpret the ops
@@ -295,9 +298,6 @@ def run_test_with_potential_timeout(code: str, test_string: str):
     except Exception as e:  # noqa
         # running the code threw an exception, most likely due to bugs in student code
         sys.settrace(None)
-        # TODO: a special case for tracing where the exception happened
-        #  (this sort of happens without sys.settrace(None) above,
-        #   but it traces this entire TracedRunResult object as a pushed value, which is unnecessary)
         return TracedRunResult(eval_result=False, ops_list=instr_code.runtime_ops_list, run_outcome=str(e))
 
 
@@ -307,7 +307,12 @@ def run_test(code: str, test_string: str):
     with multiprocessing.Pool(processes=1) as pool:
         result = pool.apply_async(run_test_with_potential_timeout, (code, test_string))
         try:
-            return result.get(timeout=0.1)
+            traced_run = result.get(timeout=0.1)
+            # Special case for exception - in that case, the op that caused the exception
+            # will be the last op in the ops_list, and we add the exception as its value.
+            if traced_run.run_outcome != 'completed':
+                traced_run.ops_list[-1].pushed_values = [f'Exception: {traced_run.run_outcome}']
+            return traced_run
         except multiprocessing.TimeoutError:
             return TracedRunResult(
                 eval_result=False,

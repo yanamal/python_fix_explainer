@@ -1,3 +1,5 @@
+import json
+
 import src.python_fix_explainer.interface_funcs as funcs
 
 
@@ -7,6 +9,10 @@ def isEvenPositiveInt(n):
         return True
 '''
 
+# student_code = '''
+# def helloWorld():
+#     print('Hello World!')
+# '''
 
 unit_tests = [
     'isEvenPositiveInt(2) == True',
@@ -15,6 +21,10 @@ unit_tests = [
     'isEvenPositiveInt(0) == False',
     'isEvenPositiveInt("yikes!") == False',
 ]
+
+# unit_tests = [
+#     'helloWorld() == "Hello World!"'
+# ]
 
 correct = [
     '''
@@ -31,6 +41,16 @@ def isEvenPositiveInt(n):
     '''
 ]
 
+# correct = [
+#     '''
+# def helloWorld():
+#     return 'Hello World!'
+#     '''
+# ]
 
-
-print(funcs.fix_code(student_code, unit_tests, correct))
+out = funcs.fix_code(student_code, unit_tests, correct)
+# print(out)
+print(json.dumps(out, indent=2))
+# for thing in out:
+#     for op in thing['synced_trace']:
+#         print(op)

@@ -19,7 +19,8 @@ var_tuples = {
 
 # types of possible (resolved) bytecode values which are not pickleable;
 # we probably don't care about them when instrumenting tracing
-unpickleable = {types.CodeType, types.MethodType, types.ModuleType, types.FunctionType}
+unpickleable = {types.CodeType, types.MethodType, types.ModuleType, types.FunctionType,
+                types.BuiltinFunctionType, types.BuiltinMethodType}
 
 
 # functions encoding the stack effects (how many things pushed and popped from the stack) of bytecode ops

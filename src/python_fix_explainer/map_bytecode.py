@@ -33,7 +33,13 @@ class Opdata:
         return self.co_name, self.offset
 
     def __str__(self):
-        return f'{self.co_name}\t{self.offset} {self.instr.opname} {self.instr.argval}'
+        return f'{self.co_name}\t{self.offset} {self.instr.opname} {self.instr.argval} ({self.instr.arg})'
+
+    def simple_repr(self):
+        if self.instr.arg is None:
+            return f'{self.instr.opname}'
+        else:
+            return f'{self.instr.opname} {self.instr.argval}'
 
 
 # A class which represents code as a flat list of bytecode ops
@@ -200,6 +206,7 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
     #  they disappear when the function definition node gets deleted.
 
     # TODO: where do the function parameter definitions get mapped to? do they not have a direct runtime effect?..
+    #  probably only when the function gets called?
 
     # TODO: what about function names? they seem to get mapped to the FunctionDef node?..
     #   This is because they are "absorbed" into the FunctionDef node by the MutableAst simplification logic.

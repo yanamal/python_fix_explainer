@@ -63,6 +63,7 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
             for unit_test in problem_unit_tests]
 
         fix_effects = []
+        best_tests = []
         for fix in remaining_fixes:
             # get subset of edit script for just applying this fix
             just_this_fix = remaining_edit_script.filtered_copy(lambda e: e.short_string not in fix)
@@ -71,17 +72,18 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
             partial_to_corrected = [
                 runtime_comparison.RuntimeComparison(partial_solution, fully_corrected_tree, unit_test)
                 for unit_test in problem_unit_tests]
-            fix_effect = runtime_comparison.compare_comparisons(base_to_corrected, partial_to_corrected)
+            fix_effect, best_test_i = runtime_comparison.compare_comparisons(base_to_corrected, partial_to_corrected)
             fix_effects.append(fix_effect)
+            best_tests.append(problem_unit_tests[best_test_i])
 
         best_effect = max(fix_effects)  # best possible fix effect achived with given base code and fixes
         applied_fixes = []
-        for fix, effect in zip(remaining_fixes, fix_effects):
+        for fix, effect, test in zip(remaining_fixes, fix_effects, best_tests):
             if effect == best_effect:
                 # apply this fix, and mark it as having been applied
                 just_this_fix = remaining_edit_script.filtered_copy(lambda e: e.short_string not in fix)
                 base_tree = just_this_fix.apply(base_tree)
-                ordered_fixes.append(just_this_fix)  # the actual edit script
+                ordered_fixes.append((just_this_fix, test))  # the actual edit script, and the illustrative unit test
                 applied_fixes.append(fix)  # the fix "block" that's in remaining_fixes
 
         for fix in applied_fixes:
@@ -111,23 +113,32 @@ def fix_code(incorrect_code: str,
     # run the 3-stage pipeline to generate the sequence of explainable fixes:
     incorrect_tree, edit_scripts = generate_edit_scripts(incorrect_code, correct_versions)
     shortest_edit_script = simplify_and_choose_shortest(incorrect_tree, problem_unit_tests, edit_scripts)
+    fully_corrected_tree = shortest_edit_script.apply(incorrect_tree)
     fix_sequence = generate_fix_sequence(incorrect_tree, problem_unit_tests, shortest_edit_script)
 
     # generate output for the interface to consume:
     code_sequence = []
     current_tree = incorrect_tree
-    for i, fix in enumerate(fix_sequence):
+    for i, (fix, illustrative_unit_test) in enumerate(fix_sequence):
         # Generate annotated html, with the context of the current fix, both before and after the fix
         # some fix data (deletes) will only exist in pre-fix,
         # some (inserts) only in post-fix,
         # and some (moves, renames) in both versions.
         # the interface will be responsible for aggregating this data into a visualization of what changes in the fix
         pre_fix_html = tree_to_html.gen_annotated_html(current_tree, id_prefix=f'before_step_{i}_', edit_script=fix)
-        current_tree = fix.apply(current_tree)
-        post_fix_html = tree_to_html.gen_annotated_html(current_tree, id_prefix=f'after_step_{i}_', edit_script=fix)
+        new_tree = fix.apply(current_tree)
+        post_fix_html = tree_to_html.gen_annotated_html(new_tree, id_prefix=f'after_step_{i}_', edit_script=fix)
+
+        fix_effect = \
+            runtime_comparison.FixEffectComparison(current_tree, new_tree, fully_corrected_tree, illustrative_unit_test)
+
+        current_tree = new_tree
         code_sequence.append({
             'source': pre_fix_html,
-            'dest': post_fix_html
+            'dest': post_fix_html,
+            'unit_test_string': illustrative_unit_test,
+            'synced_trace': fix_effect.synced_node_trace,
+            'deviation_i': fix_effect.deviation_i_in_synced
         })
 
     # append the final code state, without any edit script markup (there are no more edits to apply to this final state)
@@ -138,4 +149,7 @@ def fix_code(incorrect_code: str,
             'source': final_html,
             'dest': final_html
         })
-    return code_sequence
+    return {
+        'fix_sequence': code_sequence,
+        'final_code': final_html
+    }

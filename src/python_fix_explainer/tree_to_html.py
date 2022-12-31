@@ -19,7 +19,9 @@ action_classes = {
 # generate html of the code, marked up with spans annotating code that "belongs" to specific nodes in the AST.
 def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript = None):
     # We need to use yet another third-party library, asttokens, to be able to go from ast node to positions in code.
-    # And in order to make asttokens work correctly, we need to start from scratch:
+    # And in order to make asttokens work correctly
+    # (e.g. when the ast has been edited, or when student code is not in canonical form),
+    # we need to start from scratch:
     # Regenerate a fresh version of the text representation from the MutableAst, then generate the ast from that,
     # and a new MutableAst from the python ast.
     # Then we try our best to match the nodes of the original and new tree to each other nd walk through them
@@ -42,7 +44,7 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     #  sometimes the newly generated tree is structured differently from equivalent (original) tree
     #  e.g. by default return statement is not wrapped in Expr, but it is not wrong to have it in an Expr.
     #  and tree which came from edit script may retain Expr for shorter edit script.
-    orig_index_to_node = tree.gen_index_to_node()
+    # TODO: maybe just use a single pass of APTED? shouldn't need to move subtrees...
     new_index_to_node = new_tree.gen_index_to_node()
     orig_to_new_map = {orig_index: new_index for (orig_index, new_index) in generate_mapping(tree, new_tree)}
 
@@ -52,7 +54,6 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
         if orig_node.index in orig_to_new_map:
             new_index = orig_to_new_map[orig_node.index]
             new_node = new_index_to_node[new_index]
-            # orig_node = orig_index_to_node[orig_index]
             if not new_node.isList:
                 (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
                     atok.get_text_positions(new_node.ast, padded=False)
