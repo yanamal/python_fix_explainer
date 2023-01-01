@@ -246,7 +246,7 @@ def make_ops_tracer(instr_code: Instrumented_Bytecode):
 
                     # add this op to the traced ops
                     instr_code.add_op_trace(orig_op_info.op_id,
-                                            str(f'{this_op_id} {dis.opname[this_opcode]} {this_oparg}'))
+                                            str(f'{orig_op_info.op_id} {dis.opname[this_opcode]} {this_oparg}'))
 
                     # also, if this is a LOAD_CONST, get the value it pushed onto the stack and add it to the trace
                     if this_opcode == dis.opmap['LOAD_CONST']:
@@ -283,13 +283,19 @@ class TracedRunResult:
 def run_test_with_potential_timeout(code: str, test_string: str):
     # instrument studend code string for tracing.
     # (must do it in this function, because we can't pickle code objects for passing through multiprocessing)
+    code = code + '\n' + test_string
     instr_code = Instrumented_Bytecode(code)
 
     try:
+        # TODO: Try explcitly compiling student both code here and in FlatOpsList, with a matching filename option.
+        #  Then use filename as another part of op_id, to avoid spuriously matching <module> ops with same line number
+        #  that came from different sources.
+        #  (in that case, go back to only instrumenting - and compiling in this way - student code
+        #  and eval()ing the unit test after the student code runs)
         # try running and tracing the code together with the unit test
         sys.settrace(make_ops_tracer(instr_code))
-        exec(instr_code.instrumented_code_obj, globals())
-        unit_test_result = eval(test_string)
+        unit_test_result = eval(instr_code.instrumented_code_obj, globals())
+        # unit_test_result = eval(test_string)
         # TODO: try to make eval ops come out as not "<module>",
         #  otherwise they get mapped onto random ops in instrumented code
         sys.settrace(None)

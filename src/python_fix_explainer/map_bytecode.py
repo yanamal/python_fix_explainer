@@ -181,12 +181,11 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
         if not del_node.parent:
             # no parent - probably reached root
 
-            # blame all remaining ops on this root node
-            for orig_op_id in orig_op_to_curr_op:
-                if orig_op_id not in orig_op_to_node:
-                    orig_op_to_node[orig_op_id] = annotation
-
-            # Don't do anything else
+            # Any the remaining ops should not be mapped to any nodes:
+            # they correspond to an implicit 'return None' from the module,
+            # so when the context is different (e.g. running unit test)
+            # ops at those op ids end up changing to whatever else happens in the module
+            # (e.g. actually calling the function)
             continue
 
         del_node.parent.remove_child(del_node)

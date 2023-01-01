@@ -277,14 +277,20 @@ class FixEffectComparison:
 
         # Get the individual (node-based) trace info for before & after versions
         self.before_node_trace = [
-            {'node': node, 'values': op.pushed_values, 'op': self.before_flat_bytecode.id_to_op[op.op_id].simple_repr(),
+            {'node': node, 'values': op.pushed_values,
+             'op': self.before_flat_bytecode.id_to_op[op.op_id].simple_repr()
+             if op.op_id in self.before_flat_bytecode.id_to_op else '',
+             'op_id': op.op_id,
              'actual_op': op.orig_op_string
              }
             for op, node in
             zip(self.before_to_after.source_trace.ops_list, self.before_to_after.source_node_trace)
         ]
         self.after_node_trace = [
-            {'node': node, 'values': op.pushed_values, 'op': self.after_flat_bytecode.id_to_op[op.op_id].simple_repr(),
+            {'node': node, 'values': op.pushed_values,
+             'op': self.after_flat_bytecode.id_to_op[op.op_id].simple_repr()
+             if op.op_id in self.after_flat_bytecode.id_to_op else '',
+             'op_id': op.op_id,
              'actual_op': op.orig_op_string}
             for op, node in
             zip(self.before_to_after.dest_trace.ops_list, self.before_to_after.dest_node_trace)
