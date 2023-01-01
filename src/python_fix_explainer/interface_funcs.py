@@ -141,14 +141,10 @@ def fix_code(incorrect_code: str,
             'deviation_i': fix_effect.deviation_i_in_synced
         })
 
-    # append the final code state, without any edit script markup (there are no more edits to apply to this final state)
+    # generate the final code state, without any edit script markup
+    # (there are no more edits to apply to this final state)
     final_html = tree_to_html.gen_annotated_html(current_tree, id_prefix=f'step_{len(fix_sequence)}_')
-    # use the same html for source and dest.
-    # the interface should be able to parse this correctly into showing no changes
-    code_sequence.append({
-            'source': final_html,
-            'dest': final_html
-        })
+
     return {
         'fix_sequence': code_sequence,
         'final_code': final_html
