@@ -222,6 +222,11 @@ class RuntimeSourceGen(CustomSourceGen):
         if node:
             super(RuntimeSourceGen, self).visit_arguments(node)
 
+    def visit_Call(self, node):
+        if not node.func:
+            node.func = ast.Name(id=self.gen_dummy_name(), ctx=ast.Load())
+        super(RuntimeSourceGen, self).visit_Call(node)
+
 
 def get_node_name(node):
     if isinstance(node, list):

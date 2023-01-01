@@ -92,12 +92,18 @@ class FlatOpsList:
         return op_id in self.id_to_op
 
 
+# opnames of ops for which we don't count argument changes as having modified the op
+disregard_arg_change = {
+    'CALL_FUNCTION'  # don't blame the call op itself on changing number of parameters
+}
+
+
 def compare_op_lists(op_list1: FlatOpsList, op_list2: FlatOpsList, changed_node_id: str):
     # Compare two FlatOpsList objects to identify how the ops changed from the first to the second,
     # and record these changes as changes associated with changed_node_id:
     # (1) find longest commons subsequence of two op lists (based solely on the opcodes, not argvals)
     # (2) find ops that changed: ops that are either unmapped in the LCS, or ones where the argval changed.
-    # (3) record which changed_node_id these chaanges are associated with (by modifying in place op_list*)
+    # (3) record which changed_node_id these changes are associated with (by modifying in place op_list*)
     # returns mapping between the two ops list (based on unique op identifier of co_name and offset),
     # and the list of ops that changed
 
@@ -117,12 +123,14 @@ def compare_op_lists(op_list1: FlatOpsList, op_list2: FlatOpsList, changed_node_
             if (type(o1.instr.argval) not in unpickleable) \
                     and o1.arg not in dis.hasjrel \
                     and o1.arg not in dis.hasjabs \
+                    and o1.instr.opname not in disregard_arg_change\
                     and o1.instr.argval != o2.instr.argval:
                 # this op should also count as edited, because argval changed.
                 # (for example, the changed AST node represented a constant or literal that was the argument of an op)
                 # Don't count arg as having changed for the following kinds of ops:
                 #  - anything when argval is a pointer to a complex (unpickleable) object, e.g. code object
                 #  - ops whose args are addresses/offsets
+                #  - other ops manually configured in disregard_arg_change
                 changed_ops.add(o1.id)
 
     # find all ops that were unmapped, and record them as edited in this edit:
@@ -145,9 +153,8 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
     # for the debug_mapping option, record the code strings that each node compiles to
     # (before we start deleting nodes and mess up the code)
     index_to_node_str = {}
-    if debug_mapping:
-        for index in index_to_node:
-            index_to_node_str[index] = index_to_node[index].to_compileable_str()
+    for index in index_to_node:
+        index_to_node_str[index] = index_to_node[index].to_compileable_str()
 
     # TODO: if compilation error, fail the same way as runtime error (earlier than this)?
     orig_ops = FlatOpsList(tree_copy)
@@ -160,13 +167,28 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
     # (nodes normally represented by node ids; except if debug_mapping is on)
     orig_op_to_node = defaultdict(lambda: None)
 
+    print(tree_copy)
+    for op in curr_ops.ops:
+        print(op)
+
     for del_node in deletion_order:
+        # set the annotation that the changed ops will map to (normally node id; when debugging, node code)
+        annotation = del_node.index
+        if debug_mapping:
+            annotation = index_to_node_str[del_node.index]
 
         # remove node
         if not del_node.parent:
             # no parent - probably reached root
-            # no need to remove 'module' root node, it doesn't have a code representation anyway
+
+            # blame all remaining ops on this root node
+            for orig_op_id in orig_op_to_curr_op:
+                if orig_op_id not in orig_op_to_node:
+                    orig_op_to_node[orig_op_id] = annotation
+
+            # Don't do anything else
             continue
+
         del_node.parent.remove_child(del_node)
 
         # TODO: detect if code string is the same as previous time around (node removal makes no visible change)
@@ -174,14 +196,24 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
         # recalculate ops
         next_ops = FlatOpsList(tree_copy)
 
-        # set the annotation that the changed ops will map to (normally node id; when debugging, node code)
-        annotation = del_node.index
-        if debug_mapping:
-            annotation = index_to_node_str[del_node.index]
-
         # compare new and old ops list, and modify them in place
         # by annotating with index of the deleted node
         curr_to_next_op_map, changed_ops = compare_op_lists(curr_ops, next_ops, annotation)
+
+        print('~~~~')
+        print(tree_copy)
+        for op in next_ops.ops:
+            print(op)
+
+        print()
+        print(del_node.name)
+        print(annotation)
+        print(index_to_node_str[del_node.index])
+        print()
+
+        for op in changed_ops:
+            print(op)
+        print()
 
         # Process each original op that still has a mapping to some op in the current oplist
         for orig_op_id in orig_op_to_curr_op:
@@ -193,6 +225,7 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
             # that changed it previously, then map the corresponding original op to this current node.
             if curr_op_id in changed_ops and orig_op_id not in orig_op_to_node:
                 orig_op_to_node[orig_op_id] = annotation
+                print('Orig op blamed:', orig_ops.id_to_op[orig_op_id])
 
             # (2) propagate orig_to_curr forward to point to next_ops (soon to become curr_ops)
             if orig_op_to_curr_op[orig_op_id] in curr_to_next_op_map:
@@ -207,6 +240,7 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
 
     # TODO: where do the function parameter definitions get mapped to? do they not have a direct runtime effect?..
     #  probably only when the function gets called?
+    #  probably has to be a very special case: separately try to show frame params when inside a function?
 
     # TODO: what about function names? they seem to get mapped to the FunctionDef node?..
     #   This is because they are "absorbed" into the FunctionDef node by the MutableAst simplification logic.

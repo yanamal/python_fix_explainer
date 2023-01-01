@@ -8,6 +8,7 @@
 
 import dis
 import multiprocessing
+import re
 import sys
 from bytecode import Instr, Bytecode, ConcreteInstr
 from dataclasses import dataclass
@@ -190,6 +191,7 @@ def instrument_child_code(py_code_obj: types.CodeType, instrumented_to_orig: Dic
 class TracedOp:
     op_id: tuple  # the unique-within-code-object id of the operation
     pushed_values: list  # list of values which were pushed onto the stack by this op when it was executed this time.
+    orig_op_string: str = ''  # string representation of op that actually was traced
 
 
 # a simple class wrapper for tracking and interpreting instrumented code
@@ -202,17 +204,16 @@ class Instrumented_Bytecode:
         self.runtime_ops_list: List[TracedOp] = []
 
     # add a trace of an op being executed (leave pushed values blank for now)
-    def add_op_trace(self, op_id: tuple):
-        self.runtime_ops_list.append(TracedOp(op_id=op_id, pushed_values=[]))
+    def add_op_trace(self, op_id: tuple, orig_op):
+        self.runtime_ops_list.append(TracedOp(op_id=op_id, pushed_values=[], orig_op_string=orig_op))
 
     # add a value that was pushed onto the stack by the last traced op
     def trace_pushed_value(self, value):
-        # TODO: actually just always convert the value to string?
-        #  or should certain objects be converted s.t. things like memory pointers don't trigger false value mismatches?
         if type(value) in bytecode_metadata.unpickleable:
             # if the value is unpickleable, record a dummy string instead
             # value = '<unpickleable object>'
             value = str(value)
+            value = re.sub(r'<(.*) at .*>', r'<\1>', value)  # cut off things like memory addresses
         last_op = self.runtime_ops_list[-1]
         last_op.pushed_values.append(str(value))
 
@@ -244,7 +245,8 @@ def make_ops_tracer(instr_code: Instrumented_Bytecode):
                     # (rather than an op that's part of the insrumentation for some original op)
 
                     # add this op to the traced ops
-                    instr_code.add_op_trace(orig_op_info.op_id)
+                    instr_code.add_op_trace(orig_op_info.op_id,
+                                            str(f'{this_op_id} {dis.opname[this_opcode]} {this_oparg}'))
 
                     # also, if this is a LOAD_CONST, get the value it pushed onto the stack and add it to the trace
                     if this_opcode == dis.opmap['LOAD_CONST']:
@@ -288,6 +290,8 @@ def run_test_with_potential_timeout(code: str, test_string: str):
         sys.settrace(make_ops_tracer(instr_code))
         exec(instr_code.instrumented_code_obj, globals())
         unit_test_result = eval(test_string)
+        # TODO: try to make eval ops come out as not "<module>",
+        #  otherwise they get mapped onto random ops in instrumented code
         sys.settrace(None)
 
         return TracedRunResult(

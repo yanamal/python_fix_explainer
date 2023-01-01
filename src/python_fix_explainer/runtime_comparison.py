@@ -123,7 +123,13 @@ class RuntimeComparison:
                     # Find matching values
                     source_vals = self.source_trace.ops_list[s_i].pushed_values
                     dest_vals = self.dest_trace.ops_list[d_i].pushed_values
-                    # TODO: empty values also match?.. or unnecessary?..
+
+                    # Note: we do not want to record the absense of values as actively "matching",
+                    # because we are looking for the place where the values being calculated actually diverge
+                    # and stop matching, and never start matching again.
+                    # A "matching" lack of values would mask that moment.
+                    # In particular, any function ends with a bytecode RETURN, which does not produce a value,
+                    # and therefore any pairs of functions at all would "match" at the end.
                     if len(source_vals) > 0 and source_vals == dest_vals:
                         # Record that the values do in fact match
                         self.source_runtime_mapping_to_dest[s_i].value_matches = True
@@ -271,12 +277,15 @@ class FixEffectComparison:
 
         # Get the individual (node-based) trace info for before & after versions
         self.before_node_trace = [
-            {'node': node, 'values': op.pushed_values, 'op': self.before_flat_bytecode.id_to_op[op.op_id].simple_repr()}
+            {'node': node, 'values': op.pushed_values, 'op': self.before_flat_bytecode.id_to_op[op.op_id].simple_repr(),
+             'actual_op': op.orig_op_string
+             }
             for op, node in
             zip(self.before_to_after.source_trace.ops_list, self.before_to_after.source_node_trace)
         ]
         self.after_node_trace = [
-            {'node': node, 'values': op.pushed_values, 'op': self.after_flat_bytecode.id_to_op[op.op_id].simple_repr()}
+            {'node': node, 'values': op.pushed_values, 'op': self.after_flat_bytecode.id_to_op[op.op_id].simple_repr(),
+             'actual_op': op.orig_op_string}
             for op, node in
             zip(self.before_to_after.dest_trace.ops_list, self.before_to_after.dest_node_trace)
         ]
@@ -297,7 +306,7 @@ class FixEffectComparison:
                 # if we skipped any ops in the after trace, add them all now:
                 while mapped_after_i > after_i:
                     # TODO: this is a hack to skip ops that weren't mapped to actual nodes
-                    if not self.after_node_trace[after_i]['node'].startswith("('"):
+                    if True:  # not self.after_node_trace[after_i]['node'].startswith("('"):
                         self.synced_node_trace.append({
                             'before': None,
                             'after': self.after_node_trace[after_i],
@@ -312,7 +321,7 @@ class FixEffectComparison:
                 after_i += 1
             else:
                 # TODO: this is a hack to skip ops that weren't mapped to actual nodes
-                if not self.before_node_trace[before_i]['node'].startswith("('"):
+                if True:  # not self.before_node_trace[before_i]['node'].startswith("('"):
                     self.synced_node_trace.append({
                         'before': self.before_node_trace[before_i],
                         'after': None,
@@ -326,7 +335,8 @@ class FixEffectComparison:
         # add on rest of after code (that has't been processed because it's after the last matching before op)
         while len(self.after_node_trace)-1 > after_i:
             # TODO: this is a hack to skip ops that weren't mapped to actual nodes
-            if not self.after_node_trace[after_i]['node'].startswith("('"):
+            # TODO: skipping messes up the indexing for deviation_i, deal with one of these differently
+            if True:  # not self.after_node_trace[after_i]['node'].startswith("('"):
                 self.synced_node_trace.append({
                     'before': None,
                     'after': self.after_node_trace[after_i],
