@@ -9,10 +9,6 @@ def isEvenPositiveInt(n):
         return True
 '''
 
-# student_code = '''
-# def helloWorld():
-#     print('Hello World!')
-# '''
 
 unit_tests = [
     'isEvenPositiveInt(2) == True',
@@ -22,9 +18,6 @@ unit_tests = [
     'isEvenPositiveInt("yikes!") == False',
 ]
 
-# unit_tests = [
-#     'helloWorld() == "Hello World!"'
-# ]
 
 correct = [
     '''
@@ -41,6 +34,15 @@ def isEvenPositiveInt(n):
     '''
 ]
 
+# student_code = '''
+# def helloWorld():
+#     print('Hello World!')
+# '''
+#
+# unit_tests = [
+#     'helloWorld() == "Hello World!"'
+# ]
+#
 # correct = [
 #     '''
 # def helloWorld():

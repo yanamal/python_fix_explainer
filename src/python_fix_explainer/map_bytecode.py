@@ -94,7 +94,8 @@ class FlatOpsList:
 
 # opnames of ops for which we don't count argument changes as having modified the op
 disregard_arg_change = {
-    'CALL_FUNCTION'  # don't blame the call op itself on changing number of parameters
+    'CALL_FUNCTION',  # don't blame the call op itself on changing number of parameters
+    # 'POP_JUMP_IF_FALSE'
 }
 
 
@@ -121,10 +122,10 @@ def compare_op_lists(op_list1: FlatOpsList, op_list2: FlatOpsList, changed_node_
             op_map[o1.id] = o2.id
             mapped_ops2.add(o2.id)
             if (type(o1.instr.argval) not in unpickleable) \
-                    and o1.arg not in dis.hasjrel \
-                    and o1.arg not in dis.hasjabs \
-                    and o1.instr.opname not in disregard_arg_change\
-                    and o1.instr.argval != o2.instr.argval:
+                    and (o1.opcode not in dis.hasjrel) \
+                    and (o1.opcode not in dis.hasjabs) \
+                    and (o1.instr.opname not in disregard_arg_change) \
+                    and (o1.instr.argval != o2.instr.argval):
                 # this op should also count as edited, because argval changed.
                 # (for example, the changed AST node represented a constant or literal that was the argument of an op)
                 # Don't count arg as having changed for the following kinds of ops:
@@ -167,9 +168,9 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
     # (nodes normally represented by node ids; except if debug_mapping is on)
     orig_op_to_node = defaultdict(lambda: None)
 
-    print(tree_copy)
-    for op in curr_ops.ops:
-        print(op)
+    # print(tree_copy)
+    # for op in curr_ops.ops:
+    #     print(op)
 
     for del_node in deletion_order:
         # set the annotation that the changed ops will map to (normally node id; when debugging, node code)
@@ -188,6 +189,15 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
             # (e.g. actually calling the function)
             continue
 
+        # the return statements themselves are an extra special case,
+        # because often (almost always), the bytecode does not change when removing a value-less return;
+        # it still explicitly returns None in the same exact place.
+        # Therefore, this is a workaround to proactively map the return statement when we find and map the return value
+        map_return_statement = False
+        parent_id = del_node.parent.index
+        if del_node.parent.name == 'Return':
+            map_return_statement = True
+
         del_node.parent.remove_child(del_node)
 
         # TODO: detect if code string is the same as previous time around (node removal makes no visible change)
@@ -199,20 +209,20 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
         # by annotating with index of the deleted node
         curr_to_next_op_map, changed_ops = compare_op_lists(curr_ops, next_ops, annotation)
 
-        print('~~~~')
-        print(tree_copy)
-        for op in next_ops.ops:
-            print(op)
-
-        print()
-        print(del_node.name)
-        print(annotation)
-        print(index_to_node_str[del_node.index])
-        print()
-
-        for op in changed_ops:
-            print(op)
-        print()
+        # print('~~~~')
+        # print(tree_copy)
+        # for op in next_ops.ops:
+        #     print(op)
+        #
+        # print()
+        # print(del_node.name)
+        # print(annotation)
+        # print(index_to_node_str[del_node.index])
+        # print()
+        #
+        # for op in changed_ops:
+        #     print(op)
+        # print()
 
         # Process each original op that still has a mapping to some op in the current oplist
         for orig_op_id in orig_op_to_curr_op:
@@ -222,9 +232,13 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
             curr_op_id = orig_op_to_curr_op[orig_op_id]
             # if this op changed from curr_ops to next_ops, AND it hasn't already been mapped to a node
             # that changed it previously, then map the corresponding original op to this current node.
-            if curr_op_id in changed_ops and orig_op_id not in orig_op_to_node:
+            if curr_op_id in changed_ops and orig_op_id not in orig_op_to_node and del_node.name != 'Return':
                 orig_op_to_node[orig_op_id] = annotation
-                print('Orig op blamed:', orig_ops.id_to_op[orig_op_id])
+                # print('Orig op blamed:', orig_ops.id_to_op[orig_op_id])
+                if map_return_statement:
+                    return_op_id = (orig_op_id[0], orig_op_id[1]+2)  # the next op. nothing can go wrong.
+                    orig_op_to_node[return_op_id] = parent_id  # manually map the next op to the return statement
+                    # print('Also mapping return:', orig_ops.id_to_op[return_op_id])
 
             # (2) propagate orig_to_curr forward to point to next_ops (soon to become curr_ops)
             if orig_op_to_curr_op[orig_op_id] in curr_to_next_op_map:

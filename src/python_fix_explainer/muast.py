@@ -128,7 +128,7 @@ class RuntimeSourceGen(CustomSourceGen):
 
     def visit_If(self, node):
         if not node.test:
-            node.test = ast.NameConstant(value=False)
+            node.test = ast.Name(id=self.gen_dummy_name(), ctx=ast.Load())
 
         # TODO: why doesn't my self.body work? (or does it? try w/o below)
         if len(node.body) <= 0:
