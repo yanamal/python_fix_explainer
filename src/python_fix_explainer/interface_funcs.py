@@ -138,7 +138,8 @@ def fix_code(incorrect_code: str,
             'dest': post_fix_html,
             'unit_test_string': illustrative_unit_test,
             'synced_trace': fix_effect.synced_node_trace,
-            'deviation_i': fix_effect.deviation_i_in_synced
+            'points_of_interest': fix_effect.notable_ops_in_synced,
+            'effect_summary': fix_effect.summary_string
         })
 
     # generate the final code state, without any edit script markup

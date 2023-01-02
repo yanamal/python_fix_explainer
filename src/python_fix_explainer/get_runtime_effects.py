@@ -287,18 +287,18 @@ def run_test_with_potential_timeout(code: str, test_string: str):
     instr_code = Instrumented_Bytecode(code)
 
     try:
-        # TODO: Try explcitly compiling student both code here and in FlatOpsList, with a matching filename option.
+        # TODO: Try explcitly compiling student code both here and in FlatOpsList, with a matching filename option.
         #  Then use filename as another part of op_id, to avoid spuriously matching <module> ops with same line number
         #  that came from different sources.
         #  (in that case, go back to only instrumenting - and compiling in this way - student code
         #  and eval()ing the unit test after the student code runs)
         # try running and tracing the code together with the unit test
         sys.settrace(make_ops_tracer(instr_code))
-        unit_test_result = eval(instr_code.instrumented_code_obj, globals())
-        # unit_test_result = eval(test_string)
+        exec(instr_code.instrumented_code_obj, globals())
         # TODO: try to make eval ops come out as not "<module>",
         #  otherwise they get mapped onto random ops in instrumented code
         sys.settrace(None)
+        unit_test_result = eval(test_string)  # now actually record the unit test result by re-running the unit test
 
         return TracedRunResult(
             eval_result=unit_test_result,

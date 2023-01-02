@@ -246,11 +246,6 @@ def gen_op_to_node_mapping(code_tree: muast.MutableAst, debug_mapping=False):
 
         curr_ops = next_ops
 
-    # TODO: it looks like "return" statements in the bytecode do not get correctly mapped to the return AST node
-    #  (if one exists)
-    #  because the bytecode returns something no matter what. Instead, they get mapped to the function definition, since
-    #  they disappear when the function definition node gets deleted.
-
     # TODO: where do the function parameter definitions get mapped to? do they not have a direct runtime effect?..
     #  probably only when the function gets called?
     #  probably has to be a very special case: separately try to show frame params when inside a function?

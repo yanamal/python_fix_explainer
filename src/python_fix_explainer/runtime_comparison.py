@@ -160,11 +160,11 @@ class RuntimeComparison:
                         self.last_matching_val_dest = d_i
 
     # get the python expression corresponding to the op that was traced in self.last_matching_val_source
-    def get_last_matching_expression(self):
+    def get_last_matching_node(self):
         correct_runtime_op = self.source_trace.ops_list[self.last_matching_val_source]
         correct_node_id = self.source_op_to_node[correct_runtime_op.op_id]
         node = self.source_index_to_node[correct_node_id]
-        return str(node)
+        return node
 
     def __str__(self):
         return f'Unit test: {self.test_string}\n' \
@@ -224,6 +224,14 @@ class RuntimeComparison:
         # after the last one where values matched.
         return None
 
+    def describe_outcome(self):
+        if self.test_passed:
+            return "The code produced the correct result"
+        if not self.run_completed:
+            return f"The code did not run correctly: {self.run_status}"
+        # if we are here, the test did not pass, but the run completed
+        return "The code ran, but produced an incorrect result"
+
     def describe_improvement(self, other: 'RuntimeComparison', self_name: str, other_name: str):
         # assuming there *is* an improvement in this RuntimeComparison over other, describe it in words
         if self.run_completed and not other.run_completed:
@@ -232,22 +240,22 @@ class RuntimeComparison:
         if self.test_passed and not other.test_passed:
             return f'The test passed in {self_name}, but not in {other_name}.'
         if self.last_matching_val_dest > other.last_matching_val_dest:
-            node = self.get_last_matching_expression()
-            return f'The following expression evaluated correctly in {self_name}, ' \
-                   f'but {other_name} deviated from the expected evaluation path before this expression:' \
-                   f' \n {node}'
+            node = self.get_last_matching_node()
+            return f'The expression <code class="ast-node" data-node-id="{node.index}">{str(node).strip()}</code> ' \
+                   f'evaluated correctly in {self_name}, ' \
+                   f'but {other_name} deviated from the expected evaluation path before this expression.'
 
     # Describe (in human-readable format) whether the effect of running the code
     # got better, worse, or stayed the same from this current version of the comparison to some new version
     def describe_improvement_or_regression(self, new_version: 'RuntimeComparison'):
         if self == new_version:
-            return 'The new version of the code performed the same as the old version.'
+            return 'The fixed version of the code performed the same as the old version.'
         elif self < new_version:
-            return 'The new version of the code performed better than the old version: \n' + \
-                   new_version.describe_improvement(self, 'the new version', 'the old version')
+            return 'The fixed version of the code performed better than the old version: \n' + \
+                   new_version.describe_improvement(self, 'the fixed version', 'the old version')
         else:  # self > new_version
-            return 'The new version of the code performed worse than the old version: \n' + \
-                   self.describe_improvement(new_version, 'the old version', 'the new version')
+            return 'The fixed version of the code performed worse than the old version: \n' + \
+                   self.describe_improvement(new_version, 'the old version', 'the fixed version')
 
 
 class Effect(Enum):
@@ -283,20 +291,23 @@ class FixEffectComparison:
         self.before_to_correct = RuntimeComparison(before_fix, fully_correct, test_string)
         self.after_to_correct = RuntimeComparison(after_fix, fully_correct, test_string)
 
-        before_trace_last_matching = self.before_to_correct.last_matching_val_source
-        before_trace_deviation = self.before_to_correct.find_first_wrong_value()
-        # before_trace_deviation may be None if there were no explicitly wrong values found after last_matching
-        if before_trace_deviation is None:
-            # Try showing the last "correct" state in the after-fix version, if it got further than the before-fix one.
-            if self.after_to_correct.last_matching_val_dest >= self.before_to_correct.last_matching_val_dest:
-                before_trace_deviation = self.before_to_correct.dest_runtime_mapping_to_source[
-                    self.after_to_correct.last_matching_val_dest].mapped_op_index
+        self.summary_string = self.before_to_correct.describe_improvement_or_regression(self.after_to_correct)
+        if self.before_to_correct >= self.after_to_correct:
+            self.summary_string += '\n(but this fix may be a prerequisite for later fixes)'
 
-            # are there any ops after last_matching at all?
-            elif before_trace_last_matching + 1 < len(self.before_to_correct.source_node_trace):
-                # yes - choose the next available op as the deviation point
-                before_trace_deviation = before_trace_last_matching + 1
-            # if the last_matching op was the last op period, leave before_trace_deviation as None for now.
+        notable_ops_before_fix = {
+            'last_matching': self.before_to_correct.last_matching_val_source,
+            'first_wrong': self.before_to_correct.find_first_wrong_value(),  # may be None
+            'exception': len(self.before_to_correct.source_node_trace)-1
+            if ((not self.before_to_correct.run_completed) and len(self.before_to_correct.source_node_trace) > 0)
+            else None
+        }
+
+        notable_ops_after_fix = {
+            'last_matching': self.after_to_correct.last_matching_val_source,
+        }
+
+        self.notable_ops_in_synced = {}  # This will get filled in when creating synced trace
 
         #### Directly compare runtime traces of code before and after the fix, to generate synced trace. ####
         self.before_to_after = RuntimeComparison(before_fix, after_fix, test_string)
@@ -324,57 +335,65 @@ class FixEffectComparison:
 
         # TODO: should I actually be making this synced trace inside RuntimeComparison
         #  while processing the SequenceMatcher?
+        #  (may be harder to index notable points, which depend on both _to_correct and to-each-other comparisons)
         # Combine these individual traces into one synced list of pairs of operations,
         # using the runtime mapping from the RuntimeComparison objects
         # (mapped ops paired together, unmapped paired with a None, maintaining execution order of both traces)
         after_i = 0  # next index in the after trace we expect to see. if we don't see it mapped, we need to insert it.
         self.synced_node_trace = []
-        last_matching_i_in_synced = None
-        self.deviation_i_in_synced = None
+        before_i_to_synced = {}
+        after_i_to_synced = {}
         for before_i, node_op in enumerate(self.before_node_trace):
             #### add ops to synced_trace as needed ###
             if self.before_to_after.source_runtime_mapping_to_dest[before_i].is_mapped:
                 mapped_after_i = self.before_to_after.source_runtime_mapping_to_dest[before_i].mapped_op_index
                 # if we skipped any ops in the after trace, add them all now:
                 while mapped_after_i > after_i:
+                    synced_i = len(self.synced_node_trace)
                     self.synced_node_trace.append({
                         'before': None,
                         'after': self.after_node_trace[after_i],
                         'value_matches': False
                     })
+                    after_i_to_synced[after_i] = synced_i
                     after_i += 1
+                synced_i = len(self.synced_node_trace)
                 self.synced_node_trace.append({
                         'before': self.before_node_trace[before_i],
                         'after': self.after_node_trace[after_i],
                         'value_matches': self.before_to_after.source_runtime_mapping_to_dest[before_i].value_matches
                 })
+                after_i_to_synced[after_i] = synced_i
+                before_i_to_synced[before_i] = synced_i
                 after_i += 1
             else:
+                synced_i = len(self.synced_node_trace)
                 self.synced_node_trace.append({
                     'before': self.before_node_trace[before_i],
                     'after': None,
                     'value_matches': False
                 })
-            ### check whether we've reached deviation point(s) ###
-            if before_trace_last_matching == before_i:
-                last_matching_i_in_synced = len(self.synced_node_trace)-1
-            if before_trace_deviation is not None and before_trace_deviation == before_i:
-                self.deviation_i_in_synced = len(self.synced_node_trace)-1
+                before_i_to_synced[before_i] = synced_i
         # add on rest of after code (that has't been processed because it's after the last matching before op)
         while len(self.after_node_trace) > after_i:
+            synced_i = len(self.synced_node_trace)
             self.synced_node_trace.append({
                 'before': None,
                 'after': self.after_node_trace[after_i],
                 'value_matches': False
             })
+            after_i_to_synced[after_i] = synced_i
             after_i += 1
 
-        # if we still don't know deviation_i_in_synced, try to put it right after last_matching_i_in_synced
-        if last_matching_i_in_synced + 1 < len(self.synced_node_trace):
-            self.deviation_i_in_synced = last_matching_i_in_synced + 1
-        else:
-            # finally, if nothing else worked, just put it as the last actually matching node.
-            self.deviation_i_in_synced = last_matching_i_in_synced
+        ### translate notable point(s) in before and after traces to indices in synced trace###
+        for before_point in notable_ops_before_fix:
+            if notable_ops_before_fix[before_point] is not None:  # some will be None
+                self.notable_ops_in_synced[f'{before_point}_before_fix'] = \
+                    before_i_to_synced[notable_ops_before_fix[before_point]]
+        for after_point in notable_ops_after_fix:
+            if notable_ops_after_fix[after_point] is not None:  # some will be none
+                self.notable_ops_in_synced[f'{after_point}_after_fix'] = \
+                    after_i_to_synced[notable_ops_after_fix[after_point]]
 
 
 # given sets of comparison data of running two versions of code against the same correct version,
