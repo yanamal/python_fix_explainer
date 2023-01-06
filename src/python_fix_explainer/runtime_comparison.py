@@ -5,6 +5,8 @@
 # which buggy-to-correct comparison is better/worse in terms of the buggy version being closer/further away
 # from the corrected?
 import difflib
+import logging
+import time
 from enum import Enum
 from functools import total_ordering
 from typing import List
@@ -67,6 +69,8 @@ def filter_unmapped_ops(op_trace: get_runtime_effects.TracedRunResult, node_trac
 @total_ordering
 class RuntimeComparison:
     def __init__(self, source_tree: muast.MutableAst, dest_tree: muast.MutableAst, test_string: str):
+        start_comparison = time.time()
+
         # Store basic info
         self.source_tree = source_tree
         self.dest_tree = dest_tree
@@ -81,6 +85,9 @@ class RuntimeComparison:
         # compute and store traces of running unit test for each version
         self.source_trace = get_runtime_effects.run_test(self.source_code, test_string)
         self.dest_trace = get_runtime_effects.run_test(self.dest_code, test_string)
+
+        # TODO: truncate trace (before comparing to other trace) if it ended in timeout?
+        #  nobody wants to see thousands of ops.
 
         # record run outcomes of source code for easy access:
         self.run_status = self.source_trace.run_outcome
@@ -158,6 +165,8 @@ class RuntimeComparison:
                         # Record the last matching values found so far
                         self.last_matching_val_source = s_i
                         self.last_matching_val_dest = d_i
+
+        logging.info(f'Runtime comparison took {time.time() - start_comparison} seconds')
 
     # get the python expression corresponding to the op that was traced in self.last_matching_val_source
     def get_last_matching_node(self):
@@ -284,6 +293,7 @@ class FixEffectComparison:
                   after_fix: muast.MutableAst,
                   fully_correct: muast.MutableAst,
                   test_string: str):
+        start_fix_effect = time.time()
         self.before_flat_bytecode = map_bytecode.FlatOpsList(before_fix)
         self.after_flat_bytecode = map_bytecode.FlatOpsList(after_fix)
 
@@ -394,6 +404,8 @@ class FixEffectComparison:
             if notable_ops_after_fix[after_point] is not None:  # some will be none
                 self.notable_ops_in_synced[f'{after_point}_after_fix'] = \
                     after_i_to_synced[notable_ops_after_fix[after_point]]
+
+        logging.info(f'Generating FixEffect data took {time.time() - start_fix_effect} seconds')
 
 
 # given sets of comparison data of running two versions of code against the same correct version,

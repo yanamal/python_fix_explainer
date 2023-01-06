@@ -1,4 +1,6 @@
 import ast
+import logging
+import time
 from typing import List
 
 from . import muast
@@ -17,9 +19,11 @@ def generate_edit_scripts(incorrect_code: str, correct_versions: List[str]):
 
     edit_scripts: List[gen_edit_script.EditScript] = []
     for correct_tree in correct_trees:
+        start_edit_script_time = time.time()
         index_mapping = map_asts.generate_mapping(incorrect_tree, correct_tree)
         edit_script = gen_edit_script.generate_edit_script(incorrect_tree, correct_tree, index_mapping)
         edit_scripts.append(edit_script)
+        logging.info(f'Generating edit script took {(time.time() - start_edit_script_time)} seconds')
 
     # The  generated edit scripts work in the context of the specific MutableAst object of the original incorrect code
     # or at least one that uses the same uuids for the same nodes (e.g. a clone/copy)
@@ -43,6 +47,7 @@ def simplify_and_choose_shortest(incorrect_tree: muast.MutableAst,
 def generate_fix_sequence(incorrect_tree: muast.MutableAst,
                           problem_unit_tests: List[str],
                           edit_script: gen_edit_script.EditScript):
+    start_generate_sequence = time.time()
 
     fully_corrected_tree = edit_script.apply(incorrect_tree)
 
@@ -89,6 +94,8 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
         for fix in applied_fixes:
             remaining_fixes.remove(fix)
 
+    logging.info(
+        f'Generating fix sequence of {len(ordered_fixes)} took {time.time() - start_generate_sequence} seconds')
     return ordered_fixes
 
 
@@ -117,6 +124,7 @@ def fix_code(incorrect_code: str,
     fix_sequence = generate_fix_sequence(incorrect_tree, problem_unit_tests, shortest_edit_script)
 
     # generate output for the interface to consume:
+    start_calculate_effect = time.time()
     code_sequence = []
     current_tree = incorrect_tree
     for i, (fix, illustrative_unit_test) in enumerate(fix_sequence):
@@ -141,6 +149,8 @@ def fix_code(incorrect_code: str,
             'points_of_interest': fix_effect.notable_ops_in_synced,
             'effect_summary': fix_effect.summary_string
         })
+
+    logging.info(f'Generating fix effects and html output took {time.time() - start_calculate_effect} seconds')
 
     # generate the final code state, without any edit script markup
     # (there are no more edits to apply to this final state)

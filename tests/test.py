@@ -1,6 +1,12 @@
+import logging
+import time
+import sys
 import json
 
-import src.python_fix_explainer.interface_funcs as funcs
+import src.python_fix_explainer.interface_funcs as funcs  # TODO, maybe: why does this take a second?
+
+
+logging.basicConfig(stream=sys.stderr, level=logging.WARN)
 
 
 student_code = '''
@@ -36,6 +42,8 @@ def isEvenPositiveInt(n):
 
 # student_code = '''
 # def helloWorld():
+#     while True:
+#         pass
 #     print('Hello World!')
 # '''
 #
@@ -50,9 +58,7 @@ def isEvenPositiveInt(n):
 #     '''
 # ]
 
+
 out = funcs.fix_code(student_code, unit_tests, correct)
-# print(out)
 print(json.dumps(out, indent=2))
-# for thing in out:
-#     for op in thing['synced_trace']:
-#         print(op)
+

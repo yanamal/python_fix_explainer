@@ -7,14 +7,17 @@
 # using an op (LOAD_FAST) whose value we can examine.
 
 import dis
-import multiprocessing
+import logging
 import re
 import sys
+import time
+
 from bytecode import Instr, Bytecode, ConcreteInstr
 from dataclasses import dataclass
 import types
 from typing import List, Dict, Tuple
 
+from . import muast
 from . import bytecode_metadata
 
 
@@ -209,20 +212,25 @@ class Instrumented_Bytecode:
 
     # add a value that was pushed onto the stack by the last traced op
     def trace_pushed_value(self, value):
-        if type(value) in bytecode_metadata.unpickleable:
-            # if the value is unpickleable, record a dummy string instead
-            # value = '<unpickleable object>'
-            value = str(value)
-            value = re.sub(r'<(.*) at .*>', r'<\1>', value)  # cut off things like memory addresses
+        # if type(value) in bytecode_metadata.unpickleable:
+        #     # if the value is unpickleable, record a dummy string instead
+        #     # value = '<unpickleable object>'
+        value = str(value)
+        value = re.sub(r'<(.*) at .*>', r'<\1>', value)  # cut off things like memory addresses
         last_op = self.runtime_ops_list[-1]
-        last_op.pushed_values.append(str(value))
+        last_op.pushed_values.append(value)
+        # TODO: always converting to string before comparisons could miss subtleties like string/number confusion
+        #  maybe convert if it's not a primitive?..
 
 
 # make and return a tracer function which can be passed to sys.settrace to trace and interpret the ops
 # in a particular Instrumented_Bytecode object, mapping the instrumented ops
 # back onto the original ops of the code pre-instrumentation.
 # record the resulting list of executed ops in tinstr_code.runtime_ops_list.
-def make_ops_tracer(instr_code: Instrumented_Bytecode):
+# If the number of (original) ops exceeds max_ops, assume there is an infinite loop and abort.
+# TODO: pass in a suitable per-problem max_ops,
+#  based on a multiple of the number of ops that a correct solution tends to take.
+def make_ops_tracer(instr_code: Instrumented_Bytecode, max_ops=1000):
 
     def trace_ops(frame, event, arg):
         frame.f_trace_opcodes = True  # yes, trace execution of each bytecode operation
@@ -247,6 +255,8 @@ def make_ops_tracer(instr_code: Instrumented_Bytecode):
                     # add this op to the traced ops
                     instr_code.add_op_trace(orig_op_info.op_id,
                                             str(f'{orig_op_info.op_id} {dis.opname[this_opcode]} {this_oparg}'))
+                    if len(instr_code.runtime_ops_list) > max_ops:
+                        raise muast.CodeTimeoutException()
 
                     # also, if this is a LOAD_CONST, get the value it pushed onto the stack and add it to the trace
                     if this_opcode == dis.opmap['LOAD_CONST']:
@@ -279,15 +289,15 @@ class TracedRunResult:
 # Instrument and run the code in the string, then evaluate the expression in the test string
 # Typically, the test string checks that the actual result of executing some function matches the expected result,
 # e.g. "secondHalf([1,2,3,4]) == [3,4]"
-# may cuse a Timeout exception (e.g. if the code has an infinite loop)
-def run_test_with_potential_timeout(code: str, test_string: str):
+def run_test_timed(code: str, test_string: str):
     # instrument studend code string for tracing.
     # (must do it in this function, because we can't pickle code objects for passing through multiprocessing)
+    # TODO: we no longer need to do it here, because no longer using multiprocessing.
     code = code + '\n' + test_string
     instr_code = Instrumented_Bytecode(code)
 
     try:
-        # TODO: Try explcitly compiling student code both here and in FlatOpsList, with a matching filename option.
+        # TODO: Try explicitly compiling student code both here and in FlatOpsList, with a matching filename option.
         #  Then use filename as another part of op_id, to avoid spuriously matching <module> ops with same line number
         #  that came from different sources.
         #  (in that case, go back to only instrumenting - and compiling in this way - student code
@@ -295,8 +305,6 @@ def run_test_with_potential_timeout(code: str, test_string: str):
         # try running and tracing the code together with the unit test
         sys.settrace(make_ops_tracer(instr_code))
         exec(instr_code.instrumented_code_obj, globals())
-        # TODO: try to make eval ops come out as not "<module>",
-        #  otherwise they get mapped onto random ops in instrumented code
         sys.settrace(None)
         unit_test_result = eval(test_string)  # now actually record the unit test result by re-running the unit test
 
@@ -308,23 +316,16 @@ def run_test_with_potential_timeout(code: str, test_string: str):
     except Exception as e:  # noqa
         # running the code threw an exception, most likely due to bugs in student code
         sys.settrace(None)
-        return TracedRunResult(eval_result=False, ops_list=instr_code.runtime_ops_list, run_outcome=str(e))
+        exception_text = str(e)
+        # modify the ops list to capture the exception - in this case, the op that caused the exception
+        # will be the last op in the ops_list, and we add the exception as its value.
+        instr_code.runtime_ops_list[-1].pushed_values = [f'Exception: {exception_text}']
+        return TracedRunResult(eval_result=False, ops_list=instr_code.runtime_ops_list, run_outcome=exception_text)
 
 
-# wrapper for running code with unit test which times out after a short amount of time,
-# in case the student code has an infinite loop
 def run_test(code: str, test_string: str):
-    with multiprocessing.Pool(processes=1) as pool:
-        result = pool.apply_async(run_test_with_potential_timeout, (code, test_string))
-        try:
-            traced_run = result.get(timeout=0.1)
-            # Special case for exception - in that case, the op that caused the exception
-            # will be the last op in the ops_list, and we add the exception as its value.
-            if traced_run.run_outcome != 'completed':
-                traced_run.ops_list[-1].pushed_values = [f'Exception: {traced_run.run_outcome}']
-            return traced_run
-        except multiprocessing.TimeoutError:
-            return TracedRunResult(
-                eval_result=False,
-                ops_list=[],  # can't easily get the ops list, and don't particularly need it
-                run_outcome='Timeout(infinite loop?)')
+    start_run = time.time()
+    result = run_test_timed(code, test_string)
+    logging.info(f'Trace consisted of {len(result.ops_list)} non-instrumentation ops')
+    logging.info(f'Running instrumented unit test took {time.time() - start_run} seconds')
+    return result

@@ -10,14 +10,16 @@
 # The native python ast is updated during the manipulations to match the MutableAst object.
 
 import copy
+import logging
 import string
 import random
+import sys
+import time
 from uuid import uuid4
 from typing import List, Dict
 import astor.code_gen as cg
 import astor
 import ast
-import multiprocessing
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 
 
@@ -26,8 +28,39 @@ def canonical_code(code_str):
     return astor.to_source(ast.parse(code_str))
 
 
+# an exception which is thrown when an edit to the AST is not allowed (e.g. deleting non-leaf nodes)
 class ForbiddenEditException(Exception):
     pass
+
+
+# an exception which indicates that the code being tested timed out due to taking too many ops
+class CodeTimeoutException(Exception):
+    def __init__(self, message="Timeout (infinite loop?)"):
+        self.message = message
+        super().__init__(self.message)
+
+
+# Creates a barebones tracer which traces and counts the number of ops executed,
+# and throws an exception if the number of executed ops exceeds the passed-in max_ops
+# TODO: pass back the number of ops using a reference parameter?
+def make_op_counter(max_ops=1000):
+    executed_ops = 0
+
+    def trace_ops(frame, event, arg):
+        nonlocal executed_ops
+        frame.f_trace_opcodes = True  # yes, trace execution of each bytecode operation
+        if frame.f_code.co_filename != '<string>':
+            # we are going into code that wasn't part of the string (problem solution + unit test)
+            # we don't care about tracing what happens there.
+            return
+
+        if event == 'opcode':
+            executed_ops += 1
+            if executed_ops > max_ops:
+                raise CodeTimeoutException()
+        return trace_ops  # keep tracing with the same function
+
+    return trace_ops  # return the tracing function we created
 
 
 # TODO: try to prevent (mid-change-state) modification of "x in y" to "x in z is not y"?
@@ -459,25 +492,26 @@ class MutableAst:
         code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
         return exec(code_string, globals())  # not sure if exec actually returns anything
 
-    def test_potential_timeout(self, unit_test_strings):
+    def test_timed(self, unit_test_strings: List[str]):
         # run a set of unit test strings after running the code in this AST.
         # may cuse a Timeout exception (e.g. if the code has an infinite loop)
         try:
             code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
+            sys.settrace(make_op_counter())
             exec(code_string, globals())
-            return [ eval(test) for test in unit_test_strings ]
-        except:  # noqa TODO: less broad?
+            result = [ eval(test) for test in unit_test_strings ]
+            sys.settrace(None)
+            return result
+        except:  # noqa
+            sys.settrace(None)
+            # TODO: only set to False those tests where the exception happened? or does it not matter at this stage?
             return [False for test in unit_test_strings]
 
     def test(self, unit_test_strings: List[str]):
-        # run a set of unit test strings, and catch timeout exceptions.
-        with multiprocessing.Pool(processes=1) as pool:
-            result = pool.apply_async(self.test_potential_timeout, (unit_test_strings,))
-            try:
-                return result.get(timeout=0.1)
-            except multiprocessing.TimeoutError:
-                print('timeout')
-                return [False for test in unit_test_strings]
+        start_test = time.time()
+        result = self.test_timed(unit_test_strings)
+        logging.info(f'Ran code and {len(unit_test_strings)} test(s) in {time.time() - start_test} seconds')
+        return result
 
     # Generate mapping from index (node id) to actual node object for this MutableAst.
     # Also include any additional nodes in the existing mapping provided by additional_nodes.

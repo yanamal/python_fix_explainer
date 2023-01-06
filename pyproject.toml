@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "python_fix_explainer"
-version = "0.0.11"
+version = "0.0.12"
 authors = [
   { name="Yana Malysheva", email="kuziavra@gmail.com" },
 ]

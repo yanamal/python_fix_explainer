@@ -2,6 +2,7 @@
 # (removing some subset of edits s.t. the final edited code is still correct according to some set of tests)
 # TODO: consider re-introducing constant unrolling option (is it still necessary with the "=" mapping heuristic?)
 import logging
+import time
 from typing import List
 
 from .muast import MutableAst
@@ -59,6 +60,7 @@ def simplify_dependent_blocks(
     keep_going = True
     i = 0
     while keep_going:
+        start_iteration = time.time()
         i += 1
         keep_going = False
         remaining_potential_removals = []
@@ -77,17 +79,20 @@ def simplify_dependent_blocks(
                 edit_script = without_removed
                 keep_going = True
             else:
-                logging.debug(f'could not remove edits. Unit tests:  {tree_without_removed.test(problem_tests)}')
+                logging.debug(f'could not remove edits.')  # Unit tests:  {tree_without_removed.test(problem_tests)}')
                 remaining_potential_removals.append(remove_set)
             potential_removals = remaining_potential_removals
+        logging.info(f'Simplification iteration {i} took {time.time() - start_iteration} seconds')
 
-    logging.debug(f'{i} simplification iterations')
+    logging.info(f'{i} simplification iterations')
 
     # return resulting (shorter) edit script and grouped edits which remain.
     return edit_script, potential_removals
 
 
 def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
+    start_simplify = time.time()
+    start_len = len(edit_script.edits)
     # Simplify edit script by trying to remove blocks of connected dependencies
 
     ### Try skipping variable renames:
@@ -103,12 +108,6 @@ def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit
         for e_i in b:
             logging.debug(e_i)
 
-    '''fixes = get_best_fixes(
-        problem_name, source_tree, edit_script, additional_nodes, remaining_blocks, dependencies)
-
-    edit_blocks = order_blocks_by_runtime_improvement(
-        problem_name, source_tree, edit_script, additional_nodes, remaining_blocks, dependencies)
-
-    get_block_order_info(problem_name, source_tree, edit_script, additional_nodes, edit_blocks, dependencies)'''
-
+    logging.info(f'Simplifying edit script from {start_len} to {len(edit_script.edits)} edits'
+                 f' took {time.time() - start_simplify} seconds')
     return edit_script
