@@ -160,3 +160,16 @@ def fix_code(incorrect_code: str,
         'fix_sequence': code_sequence,
         'final_code': final_html
     }
+
+
+# Test the (presumed to be correct) solutions against all the unit tests.
+# if all tests pass on all solutions, return False.
+# otherwise, return index of solution and unit test where the unit test fails on that solution.
+def has_failing_unit_test(solutions: List[str], tests: List[str]):
+    for s_i, s in enumerate(solutions):
+        s_tree = muast.MutableAst(ast.parse(s))
+        test_results = s_tree.test(tests)
+        for r_i, result in enumerate(test_results):
+            if not result:
+                return s_i, r_i
+    return False
