@@ -21,6 +21,7 @@ import astor.code_gen as cg
 import astor
 import ast
 from xml.etree.ElementTree import Element, SubElement, ElementTree
+from dataclasses import dataclass
 
 
 # Utility - canonicalize code
@@ -40,14 +41,18 @@ class CodeTimeoutException(Exception):
         super().__init__(self.message)
 
 
+# a simple counter object which we can pass-by-reference to make_op_counter in order to get back the number of ops
+@dataclass
+class OpsCounter:
+    ops: int = 0
+
+
 # Creates a barebones tracer which traces and counts the number of ops executed,
 # and throws an exception if the number of executed ops exceeds the passed-in max_ops
 # TODO: pass back the number of ops using a reference parameter?
-def make_op_counter(max_ops=1000):
-    executed_ops = 0
+def make_op_counter(counter: OpsCounter, max_ops=1000):
 
     def trace_ops(frame, event, arg):
-        nonlocal executed_ops
         frame.f_trace_opcodes = True  # yes, trace execution of each bytecode operation
         if frame.f_code.co_filename != '<string>':
             # we are going into code that wasn't part of the string (problem solution + unit test)
@@ -55,8 +60,8 @@ def make_op_counter(max_ops=1000):
             return
 
         if event == 'opcode':
-            executed_ops += 1
-            if executed_ops > max_ops:
+            counter.ops += 1
+            if counter.ops > max_ops:
                 raise CodeTimeoutException()
         return trace_ops  # keep tracing with the same function
 
@@ -494,10 +499,11 @@ class MutableAst:
 
     def test_timed(self, unit_test_strings: List[str]):
         # run a set of unit test strings after running the code in this AST.
-        # may cuse a Timeout exception (e.g. if the code has an infinite loop)
         try:
             code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
-            sys.settrace(make_op_counter())
+            counter = OpsCounter()
+            # TODO: actually use/record ops counter, and probably separately for each test and take the max?
+            sys.settrace(make_op_counter(counter))
             exec(code_string, globals())
             result = [ eval(test) for test in unit_test_strings ]
             sys.settrace(None)
