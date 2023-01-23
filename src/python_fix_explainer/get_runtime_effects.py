@@ -31,9 +31,9 @@ class OpInstrumentationData:
 
 
 # set of instructions which should not be instrumented (by popping and pushing stack after the instruction)
-do_not_instrument = {'LOAD_METHOD', 'LOAD_CONST', 'LOAD_FAST'}
-# LOAD_METHOD seems to break everything, maybe due to scope issues
-#   ('variable referenced before assignment' exception for stack-tracking variable)
+do_not_instrument = {'LOAD_METHOD', 'LOAD_BUILD_CLASS', 'LOAD_CONST', 'LOAD_FAST'}
+# LOAD_METHOD and LOAD_BUILD_CLASS seem to break everything, maybe due to scope issues
+#   ('variable referenced before assignment' exception for stack-tracking variable, and/or negative stack size)
 # the results of LOAD_CONST and LOAD_FAST will already be picked up by the tracer without additional instrumentation.
 # TODO: if any jump instructions actually push something on the stack, the instrumentation will only work
 #  in the non-jump case (since they are appended after the instruction)
