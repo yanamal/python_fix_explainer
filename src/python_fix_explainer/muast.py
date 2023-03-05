@@ -50,7 +50,7 @@ class OpsCounter:
 # Creates a barebones tracer which traces and counts the number of ops executed,
 # and throws an exception if the number of executed ops exceeds the passed-in max_ops
 # TODO: pass back the number of ops using a reference parameter?
-def make_op_counter(counter: OpsCounter, max_ops=1000):
+def make_op_counter(counter: OpsCounter, max_ops=20000):
 
     def trace_ops(frame, event, arg):
         frame.f_trace_opcodes = True  # yes, trace execution of each bytecode operation
@@ -62,6 +62,7 @@ def make_op_counter(counter: OpsCounter, max_ops=1000):
         if event == 'opcode':
             counter.ops += 1
             if counter.ops > max_ops:
+                print('timeout')
                 raise CodeTimeoutException()
         return trace_ops  # keep tracing with the same function
 
@@ -508,9 +509,10 @@ class MutableAst:
             result = [ eval(test) for test in unit_test_strings ]
             sys.settrace(None)
             return result
-        except:  # noqa
+        except Exception as e:  # noqa
             sys.settrace(None)
-            # TODO: only set to False those tests where the exception happened? or does it not matter at this stage?
+            print(e)
+            # TODO: only set to False those tests where the exception happened
             return [False for test in unit_test_strings]
 
     def test(self, unit_test_strings: List[str]):
@@ -715,6 +717,8 @@ class MutableAst:
         ## insert ast into self.ast
         self.ast.insert(my_i, new_child.ast)
 
+        # TODO: doesn't take?
+        #  newly inserted child doesn't retain parent (but only in partial applications of edit script?)
         new_child.parent = self
         new_child.key_in_parent = my_i
 
@@ -732,6 +736,7 @@ class MutableAst:
         if not self.isList:
             raise Exception("Trying to get_child_neighbors on a non-list node")
         child_i = child.key_in_parent
+        # TODO: ensure it doesn't helpfully wrap around?..
         before_node = self.children_dict.get(child_i-1, None)
         after_node = self.children_dict.get(child_i+1, None)
         return before_node, after_node

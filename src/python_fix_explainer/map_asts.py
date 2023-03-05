@@ -108,20 +108,37 @@ def _generate_unmapped_subtrees(source_tree: MutableAst,
     return source_root, dest_root
 
 
-def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst):
+def naive_recursive_mapping(source_tree: MutableAst, dest_tree: MutableAst, partial_mapping=None):
+    if partial_mapping is None:
+        partial_mapping = []
+    if source_tree.name == dest_tree.name:
+        partial_mapping.append((source_tree, dest_tree))
+        for child_key in source_tree.children_dict:
+            if child_key in dest_tree.children_dict:
+                naive_recursive_mapping(
+                    source_tree.children_dict[child_key],
+                    dest_tree.children_dict[child_key],
+                    partial_mapping)
+    return partial_mapping
+
+
+def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pass=True):
     # generate mapping between the two trees, represented as a set of pairs of mapped nodes.
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
     should_continue = True
     rename_weight = 1.9  # the first time around, prefer renaming to delete+add (if < 2.0) TODO: make parameter?
     use_assign_depth = True
-    # i = 0
+    i = 0
 
     while should_continue:  # the roots of two trees will always be 'mappable'
-        node_mapping = APTED(source_tree, dest_tree,
-                             config=CompareConfig(rename_weight=rename_weight, use_assign_depth=use_assign_depth)
-                             ).compute_edit_mapping()
-        rename_weight = 2.0  # after the first time around, don't rename unnecessarily
+        if do_naive_pass and i == 0:
+            node_mapping = naive_recursive_mapping(source_tree, dest_tree)
+        else:
+            node_mapping = APTED(source_tree, dest_tree,
+                                 config=CompareConfig(rename_weight=rename_weight, use_assign_depth=use_assign_depth)
+                                 ).compute_edit_mapping()
+            rename_weight = 2.0  # after the first APTED mapping, don't rename unnecessarily
         use_assign_depth = False  # only use it for the first (coarse-grained) pass
         should_continue = False  # assume we're done
         for s_n, d_n in node_mapping:
@@ -137,7 +154,7 @@ def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst):
                 should_continue = True
                 index_mapping.add( (s_n.index, d_n.index) )
         # draw_comparison(source_tree, dest_tree, index_mapping, '', '', f'leftovers{i}.dot')
-        # i += 1
+        i += 1
 
         source_tree, dest_tree = _generate_unmapped_subtrees(source_tree, dest_tree, node_mapping)
 

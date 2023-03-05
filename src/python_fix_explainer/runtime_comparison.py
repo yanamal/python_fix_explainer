@@ -397,11 +397,13 @@ class FixEffectComparison:
 
         ### translate notable point(s) in before and after traces to indices in synced trace###
         for before_point in notable_ops_before_fix:
-            if notable_ops_before_fix[before_point] is not None:  # some will be None
+            if notable_ops_before_fix[before_point] is not None \
+                    and len(before_i_to_synced) > notable_ops_before_fix[before_point]:  # some will be None
                 self.notable_ops_in_synced[f'{before_point}_before_fix'] = \
                     before_i_to_synced[notable_ops_before_fix[before_point]]
         for after_point in notable_ops_after_fix:
-            if notable_ops_after_fix[after_point] is not None:  # some will be none
+            if notable_ops_after_fix[after_point] is not None\
+                    and len(after_i_to_synced) > notable_ops_after_fix[after_point]:  # some will be None
                 self.notable_ops_in_synced[f'{after_point}_after_fix'] = \
                     after_i_to_synced[notable_ops_after_fix[after_point]]
 

@@ -32,7 +32,8 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
         for edit in edit_script.edits:
             node_to_edits[edit.node_id].append(edit)
 
-    txt = str(tree)
+    # TODO: why didn't str(tree) work?
+    txt = tree.to_compileable_str()
     py_ast = ast.parse(txt)
     atok = asttokens.ASTTokens(str(txt), tree=py_ast)
     new_tree = MutableAst(py_ast)

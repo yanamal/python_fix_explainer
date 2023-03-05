@@ -31,7 +31,7 @@ class OpInstrumentationData:
 
 
 # set of instructions which should not be instrumented (by popping and pushing stack after the instruction)
-do_not_instrument = {'LOAD_METHOD', 'LOAD_BUILD_CLASS', 'LOAD_CONST', 'LOAD_FAST'}
+do_not_instrument = {'LOAD_METHOD', 'LOAD_BUILD_CLASS', 'SETUP_WITH', 'LOAD_CONST', 'LOAD_FAST'}
 # LOAD_METHOD and LOAD_BUILD_CLASS seem to break everything, maybe due to scope issues
 #   ('variable referenced before assignment' exception for stack-tracking variable, and/or negative stack size)
 # the results of LOAD_CONST and LOAD_FAST will already be picked up by the tracer without additional instrumentation.
@@ -118,6 +118,7 @@ def instrument_code_obj(py_code_obj: types.CodeType, instrumented_to_orig: Dict[
         # and inject it into byte_code_instructions:
         to_inject = []
         if push_pop_effect.num_pushed > 0 and (instr.name not in do_not_instrument):
+            # print(instr.name, instr)
             for j in range(push_pop_effect.num_pushed):
                 # for each value newly pushed onto the stack, add instructions to be injected:
                 # (prepend instruction) at the beginning, pop it off the stack
@@ -230,7 +231,7 @@ class Instrumented_Bytecode:
 # If the number of (original) ops exceeds max_ops, assume there is an infinite loop and abort.
 # TODO: pass in a suitable per-problem max_ops,
 #  based on a multiple of the number of ops that a correct solution tends to take.
-def make_ops_tracer(instr_code: Instrumented_Bytecode, max_ops=1000):
+def make_ops_tracer(instr_code: Instrumented_Bytecode, max_ops=20000):
 
     def trace_ops(frame, event, arg):
         frame.f_trace_opcodes = True  # yes, trace execution of each bytecode operation
