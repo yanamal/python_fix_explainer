@@ -160,6 +160,10 @@ class EditScript:
         return filtered
 
     def _get_dependencies(self):
+        # TODO: insert depends on edits to before/after nodes? e.g. insert line, then insert another line after that?
+        #  Or doesn't matter much when we can actually evaluate the effect of a fix
+        #  separate from the previous one and order accordingly?
+
         # Figure out which steps in a (valid) edit script depend on other steps being present
         # (can't remove a step with dependencies if the dependencies stay in)
         # returns an nx.DiGraph object mapping out the dependencies between edits

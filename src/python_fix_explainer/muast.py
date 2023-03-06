@@ -536,7 +536,14 @@ class MutableAst:
             index_to_node[node.index] = node
 
         for n in additional_nodes:
-            index_to_node[n] = additional_nodes[n]
+            if n not in index_to_node:
+                # only add in the "additional" node if a node with this id doesn't already exist
+                # otherwise, may accidentally overwrite a node already in the tree
+                # with a node from "additional" nodes that has less context
+                # (e.g. when additional_nodes comes from a complete edit script which we are applying one
+                # "filtered copy" fix at a time)
+                # TODO: consider recalculating additional_nodes when making filtered copy
+                index_to_node[n] = additional_nodes[n]
 
         return index_to_node
 

@@ -304,9 +304,10 @@ def run_test_timed(code: str, test_string: str):
         #  (in that case, go back to only instrumenting - and compiling in this way - student code
         #  and eval()ing the unit test after the student code runs)
         # try running and tracing the code together with the unit test
+        old_trace = sys.gettrace()
         sys.settrace(make_ops_tracer(instr_code))
         exec(instr_code.instrumented_code_obj, globals())
-        sys.settrace(None)
+        sys.settrace(old_trace)
         unit_test_result = eval(test_string)  # now actually record the unit test result by re-running the unit test
 
         return TracedRunResult(
