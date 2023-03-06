@@ -50,7 +50,16 @@ class Edit:
     before: str = None  # the current node should be inserted before this node in its parent
     after: str = None  # the current node should be inserted after this node in its parent
 
+    # parameters for cases when moving/inserting a node displaces some other existing node.
+    # this can only happen to nodes that are keyed children of other ast nodes (not indexed children in a list).
+    # the displaced node then also must have an edit which either moves or deletes it,
+    # and this current edit depends on the displaced node's edit
+    # (and should not be done without it when splitting or simplifying the edit script)
+    displaces_node: bool = False  # does this edit displace some other node in the AST?
+    displaced_node_id: str = None  # id of the node being displaced, if any
+
     # is_var_literal_swap: bool = False  # is this edit swapping a literal for a variable? TODO: obsolete?
+    # TODO: is the temp_key logic completely superceded by displaced node logic?
     is_fix_temp_key: bool = False  # Does this edit fix a node being stored under a temporary key?
     orig_key: str = None  # The original key that the node was under, before being moved to a temporary key
     displaced_by_id: str = None  # id of the node that displaced this node, which created the temporary key
@@ -156,6 +165,7 @@ class EditScript:
         filtered = copy.deepcopy(self)
         filtered.edits = [e for e in self.edits if not remove_filter(e)]
         # Reset data that needs to be recalculated
+        # TODO: recalculate fresh copy/subset of additional_nodes?..
         filtered._dependency_graph = None
         return filtered
 
@@ -267,6 +277,7 @@ class EditScript:
                 if insert_self_string in string_to_edit:
                     dependencies[edit.short_string].append(insert_self_string)
 
+            # TODO: is this completely superceded by displaced_node logic?
             if edit.is_fix_temp_key:
                 # out-of-order dependency: ([insert, move] -> [move, delete])
                 # inserts/moves which displace a node depend on later cleaning up the displaced node (via fix_temp_key)
@@ -296,6 +307,36 @@ class EditScript:
                 ).short_string
                 if align_override_string in string_to_edit:
                     dependencies[align_override_string].append(edit.short_string)
+
+            if edit.displaces_node:
+                # mixed-order dependency: [insert, move, align-keys] depends on [move, align-keys, delete]
+                # inserting or moving a node to a place where some other node already exists
+                # depends on edits that "fix" that displaced node (either move it elsewhere or delete it)
+
+                # We try all 3 possibilities for edits that 'fix' the displaced node.
+                align_displaced_string = Edit(
+                    action=Action.MOVE,
+                    stage=Stage.ALIGN_KEYS,
+                    node_id=edit.displaced_node_id
+                ).short_string
+                if align_displaced_string in string_to_edit:
+                    dependencies[edit.short_string].append(align_displaced_string)
+
+                move_displaced_string = Edit(
+                    action=Action.MOVE,
+                    stage=Stage.MOVE,
+                    node_id=edit.displaced_node_id
+                ).short_string
+                if move_displaced_string in string_to_edit:
+                    dependencies[edit.short_string].append(move_displaced_string)
+
+                delete_displaced_string = Edit(
+                    action=Action.DELETE,
+                    stage=Stage.DELETE,
+                    node_id=edit.displaced_node_id
+                ).short_string
+                if delete_displaced_string in string_to_edit:
+                    dependencies[edit.short_string].append(delete_displaced_string)
 
             if edit.is_cleanup_after_node_type_change:
                 # out-of-order dependency: (update -> move) or (update -> delete)
@@ -358,6 +399,10 @@ def generate_edit_script(source_tree: muast.MutableAst,
     var_renames_s_to_d = {}  # mappings of variable renames (source -> dest)
     var_renames_d_to_s = {}  # mappings of variable renames (dest -> source)
 
+    orig_index_to_node = {}
+    for n in muast.breadth_first(orig_tree):
+        orig_index_to_node[n.index] = n
+
     source_index_to_node = {}
     for n in muast.breadth_first(source_tree):
         source_index_to_node[n.index] = n
@@ -385,7 +430,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
             source_var = source_node.ast.id
             dest_var = dest_node.ast.id
             if type(source_node.ast.ctx).__name__ == 'Store' and type(dest_node.ast.ctx).__name__ == 'Store':
-                # both are 'store' operations
+                # both are 'store' operations; this may be a new variable rename we need to track.
                 if source_var not in var_renames_s_to_d:
                     # This is a brand-new store operation (not a reassignment) - add to mapping between var renames
                     var_renames_s_to_d[source_var] = dest_var
@@ -413,7 +458,10 @@ def generate_edit_script(source_tree: muast.MutableAst,
     def add_applicable_cleanup_metadata(the_edit: Edit, edited_node: muast.MutableAst):
         # for certain types of edits (moves, deletes) check whether this edit is one of two different types
         # of "cleanup" edits, which have dependency relationships with edits they are cleaning up from.
-        if edited_node.key_in_parent and (type(edited_node.key_in_parent) == str):  # TODO: why the type check?
+        if edited_node.key_in_parent and (type(edited_node.key_in_parent) == str):
+            # has a key_in_parent, and the key is a string
+            # (therefore the parent is a node, not a list which would have integer keys/indices)
+
             # noinspection PyProtectedMember
             if edited_node.key_in_parent.startswith('old_'):
                 # this insert is actually a (necessary) realignment from a temporary key
@@ -423,6 +471,22 @@ def generate_edit_script(source_tree: muast.MutableAst,
             elif edited_node.key_in_parent not in edited_node.parent.ast._fields:
                 # this is actually a move which cleans up children of nodes whose type has changed
                 the_edit.is_cleanup_after_node_type_change = True
+
+    def add_displacement_metadata(the_edit: Edit):
+        # Check whether this edit may displace an existing node, and record the displacement metadata if so.
+        new_node_key = the_edit.key_in_parent
+        if new_node_key and (type(new_node_key) == str):
+            # has a key_in_parent, and the key is a string
+            # (therefore the parent is a node, not a list which would have integer keys/indices)
+            if the_edit.parent_id in orig_index_to_node:
+                # If the intended parent node actually exists in original tree
+                orig_parent = orig_index_to_node[the_edit.parent_id]
+                if not orig_parent.isList \
+                        and new_node_key in orig_parent.children_dict \
+                        and orig_parent.children_dict[new_node_key]:
+                    displaced_node = orig_parent.children_dict[new_node_key]
+                    the_edit.displaces_node = True
+                    the_edit.displaced_node_id = displaced_node.index
 
     #### Enumerate and add edits in stage order: update, align (keys or order), insert, move, delete ####
 
@@ -484,6 +548,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
                 key_in_parent=d_n.key_in_parent
             )
             add_applicable_cleanup_metadata(align_edit, s_n)
+            add_displacement_metadata(align_edit)
 
             edit_script.append(align_edit)
 
@@ -623,6 +688,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
                 insert_e.new_name = new_name
 
             insert_key = insert_based_on_dest_location(to_insert.index, insert_e)
+            add_displacement_metadata(insert_e)
             edit_script.append(insert_e)
 
     #### Move step ####
@@ -641,6 +707,7 @@ def generate_edit_script(source_tree: muast.MutableAst,
                 )
                 s_n.parent.remove_child(s_n)  # remove from old location
                 move_key = insert_based_on_dest_location(s_i, move_e)  # insert at new location
+                add_displacement_metadata(move_e)
                 edit_script.append(move_e)
 
     #### Delete step ####
