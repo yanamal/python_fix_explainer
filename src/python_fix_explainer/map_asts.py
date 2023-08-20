@@ -113,6 +113,7 @@ def naive_recursive_mapping(source_tree: MutableAst, dest_tree: MutableAst, part
         partial_mapping = []
     if source_tree.name == dest_tree.name:
         partial_mapping.append((source_tree, dest_tree))
+        # TODO: something diffferent for list nodes?.. (don't use indices as keys)
         for child_key in source_tree.children_dict:
             if child_key in dest_tree.children_dict:
                 naive_recursive_mapping(
@@ -122,7 +123,7 @@ def naive_recursive_mapping(source_tree: MutableAst, dest_tree: MutableAst, part
     return partial_mapping
 
 
-def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pass=True):
+def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pass=False):
     # generate mapping between the two trees, represented as a set of pairs of mapped nodes.
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
@@ -139,7 +140,7 @@ def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pa
                                  config=CompareConfig(rename_weight=rename_weight, use_assign_depth=use_assign_depth)
                                  ).compute_edit_mapping()
             rename_weight = 2.0  # after the first APTED mapping, don't rename unnecessarily
-        use_assign_depth = False  # only use it for the first (coarse-grained) pass
+        use_assign_depth = False  # only use it for the first (coarse-grained) pass TODO: should this be in the else?..
         should_continue = False  # assume we're done
         for s_n, d_n in node_mapping:
             if (s_n is not None) and (d_n is not None) and (s_n != source_tree) and (d_n != dest_tree):
