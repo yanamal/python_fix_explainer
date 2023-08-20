@@ -173,6 +173,12 @@ class EditScript:
         # TODO: insert depends on edits to before/after nodes? e.g. insert line, then insert another line after that?
         #  Or doesn't matter much when we can actually evaluate the effect of a fix
         #  separate from the previous one and order accordingly?
+        #  If this dependency exists, simplification logic may be less flexible
+        #  (either insert ALL the code, or none of it- can't detect when some lines are unnecessary)
+        #  But if it does not exist, then skipping one of the inserts in a chunk
+        #  may result in a nonsensical insert anyway (e.g. insert at the top instead of after previous line)
+        #  Another option is to make more elaborate logic about where to insert,
+        #  e.g. have before/after be *lists* of available preceding/following neighbors
 
         # Figure out which steps in a (valid) edit script depend on other steps being present
         # (can't remove a step with dependencies if the dependencies stay in)
@@ -283,9 +289,6 @@ class EditScript:
                 # inserts/moves which displace a node depend on later cleaning up the displaced node (via fix_temp_key)
                 # is_fix_temp_key moves/deletes are a "prerequisite" (well, post-requisite)
                 # to whatever move/insert displaced that node
-                # TODO: won't catch move -> move dependencies that happen in the 'right' order
-                #  (move node which would have been displaced, then move 'displacing' node)
-                #  (change how is_fix_temp_key is generated to take care of this case?)
                 insert_override_string = Edit(
                     action=Action.INSERT,
                     stage=Stage.INSERT,

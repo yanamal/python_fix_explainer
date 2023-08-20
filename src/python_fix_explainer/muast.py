@@ -724,8 +724,6 @@ class MutableAst:
         ## insert ast into self.ast
         self.ast.insert(my_i, new_child.ast)
 
-        # TODO: doesn't take?
-        #  newly inserted child doesn't retain parent (but only in partial applications of edit script?)
         new_child.parent = self
         new_child.key_in_parent = my_i
 

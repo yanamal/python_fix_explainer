@@ -32,9 +32,6 @@ def get_constant_pop_stack_effect(opname):
 
     # Not implemented (too complicated/unclear, probably won't need it):
     # END_ASYNC_FOR BEFORE_ASYNC_WITH WITH_EXCEPT_START SETUP_WITH
-    # TODO: BUILD_TUPLE, BUILD_LIST, BUILD_SET, BUILD_MAP, BUILD_CONST_KEY_MAP, BUILD_STRING, BUILD_SLICE (uses arg)
-    #  RAISE_VARARGS CALL_FUNCTION CALL_FUNCTION_KW CALL_FUNCTION_EX
-    #  MAKE_FUNCTION(?)
     individual_effects = {
         'POP_TOP': 1,
         'ROT_TWO': 2,
@@ -105,7 +102,14 @@ def get_pop_push_stack_effect(opcode, oparg=None, jump=None):
     # - number of items popped/accessed
     # - number of items pushed/touched
     opname = dis.opname[opcode]
-    sum_effect = dis.stack_effect(opcode, oparg)
+
+    if opcode in [
+                   144  # EXTENDED_ARG
+                 ]:
+        # special ops that aren't accounted for in dis.stack_effect for no good reason at all
+        sum_effect = 0
+    else:
+        sum_effect = dis.stack_effect(opcode, oparg)
     # TODO: figure out how to do jump argument (maybe doesn't exist in < 3.8?.. but tooltips have it)
 
     # these ops pop a variable number of items off the stack, but always push one on:
