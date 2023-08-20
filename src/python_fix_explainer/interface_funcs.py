@@ -21,6 +21,7 @@ def generate_edit_scripts(incorrect_code: str, correct_versions: List[str]):
     for correct_tree in correct_trees:
         start_edit_script_time = time.time()
         index_mapping = map_asts.generate_mapping(incorrect_tree, correct_tree)
+        # map_asts.draw_comparison(incorrect_tree, correct_tree, index_mapping, 'mapping.dot')
         edit_script = gen_edit_script.generate_edit_script(incorrect_tree, correct_tree, index_mapping)
         edit_scripts.append(edit_script)
         logging.info(f'Generating edit script took {(time.time() - start_edit_script_time)} seconds')
@@ -42,6 +43,15 @@ def simplify_and_choose_shortest(incorrect_tree: muast.MutableAst,
     ]
 
     return min(simplified_scripts, key=lambda x: x.edit_distance)
+
+
+def generate_static_fix_sequence(incorrect_tree: muast.MutableAst,
+                                 edit_script: gen_edit_script.EditScript):
+    ordered_fixes = []
+    for edit_string_list in edit_script.dependent_blocks:
+        fix = edit_script.filtered_copy(lambda e: e.short_string not in edit_string_list)
+        ordered_fixes.append((fix, None))
+    return ordered_fixes
 
 
 def generate_fix_sequence(incorrect_tree: muast.MutableAst,
@@ -99,9 +109,9 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
     return ordered_fixes
 
 
-def get_run_trace(code_tree, test_string):
-    code_trace = get_runtime_effects.run_test(str(code_tree), test_string)
+def get_run_trace(code_tree: muast.MutableAst, test_string: str):
     op_to_node = map_bytecode.gen_op_to_node_mapping(code_tree)
+    code_trace = get_runtime_effects.run_test(str(code_tree), test_string)
     node_sequence = runtime_comparison.get_runtime_node_sequence(code_trace.ops_list, op_to_node)
 
     node_trace = []
@@ -117,11 +127,37 @@ def fix_code(incorrect_code: str,
              problem_unit_tests: List[str],
              correct_versions: List[str]):
 
-    # run the 3-stage pipeline to generate the sequence of explainable fixes:
+    static_only_reason = None  # reason that only static analysis was done (no simplification or runtime analysis)
+    zero_fixes_reason = None  # reason that zero fixes were generated
+
+    # run the 3-stage pipeline to generate the sequence of explainable fixes;
+    # run abbreviated pipeline in degenerate cases
     incorrect_tree, edit_scripts = generate_edit_scripts(incorrect_code, correct_versions)
-    shortest_edit_script = simplify_and_choose_shortest(incorrect_tree, problem_unit_tests, edit_scripts)
-    fully_corrected_tree = shortest_edit_script.apply(incorrect_tree)
-    fix_sequence = generate_fix_sequence(incorrect_tree, problem_unit_tests, shortest_edit_script)
+    if len(correct_versions) == 0:
+        zero_fixes_reason = "There are no correct solutions associated with this problem"
+        fix_sequence = []
+        fully_corrected_tree = incorrect_tree
+        shortest_edit_script = gen_edit_script.EditScript(
+            edits=[],
+            additional_nodes={},
+            var_renames={},
+            source_tree=incorrect_tree
+        )
+        # TODO: could also set correct to student code and run the analysis? less efficient, but less manual
+    else:
+        # at least one correct code version exists.
+        if len(problem_unit_tests) == 0:
+            shortest_edit_script = min(edit_scripts, key=lambda x: x.edit_distance)
+            static_only_reason = "There are no unit tests associated with this problem"
+            fix_sequence = generate_static_fix_sequence(incorrect_tree, shortest_edit_script)
+        else:
+            shortest_edit_script = simplify_and_choose_shortest(incorrect_tree, problem_unit_tests, edit_scripts)
+            fix_sequence = generate_fix_sequence(incorrect_tree, problem_unit_tests, shortest_edit_script)
+
+        fully_corrected_tree = shortest_edit_script.apply(incorrect_tree)
+
+        if len(fix_sequence) == 0:
+            zero_fixes_reason = "The student code passes unit tests without any fixes."
 
     # generate output for the interface to consume:
     start_calculate_effect = time.time()
@@ -137,18 +173,29 @@ def fix_code(incorrect_code: str,
         new_tree = fix.apply(current_tree)
         post_fix_html = tree_to_html.gen_annotated_html(new_tree, id_prefix=f'after_step_{i}_', edit_script=fix)
 
-        fix_effect = \
-            runtime_comparison.FixEffectComparison(current_tree, new_tree, fully_corrected_tree, illustrative_unit_test)
+        if illustrative_unit_test:
+            fix_effect = \
+                runtime_comparison.FixEffectComparison(
+                    current_tree, new_tree, fully_corrected_tree, illustrative_unit_test)
+
+            code_sequence.append({
+                'source': pre_fix_html,
+                'dest': post_fix_html,
+                'unit_test_string': illustrative_unit_test,
+                'synced_trace': fix_effect.synced_node_trace,
+                'points_of_interest': fix_effect.notable_ops_in_synced,
+                'effect_summary': fix_effect.summary_string
+            })
+            print(new_tree)
+            print(illustrative_unit_test)
+            print(fix_effect.summary_string)
+        else:
+            code_sequence.append({
+                'source': pre_fix_html,
+                'dest': post_fix_html,
+            })
 
         current_tree = new_tree
-        code_sequence.append({
-            'source': pre_fix_html,
-            'dest': post_fix_html,
-            'unit_test_string': illustrative_unit_test,
-            'synced_trace': fix_effect.synced_node_trace,
-            'points_of_interest': fix_effect.notable_ops_in_synced,
-            'effect_summary': fix_effect.summary_string
-        })
 
     logging.info(f'Generating fix effects and html output took {time.time() - start_calculate_effect} seconds')
 
@@ -156,9 +203,20 @@ def fix_code(incorrect_code: str,
     # (there are no more edits to apply to this final state)
     final_html = tree_to_html.gen_annotated_html(current_tree, id_prefix=f'step_{len(fix_sequence)}_')
 
+    before_html = tree_to_html.gen_annotated_html(incorrect_tree, id_prefix=f'before_', edit_script=shortest_edit_script)
+    after_html = tree_to_html.gen_annotated_html(current_tree, id_prefix=f'after_', edit_script=shortest_edit_script)
+
     return {
         'fix_sequence': code_sequence,
-        'final_code': final_html
+        'final_code': final_html,
+        'is_static_analysis_only': (static_only_reason is not None),
+        'static_only_reason': static_only_reason,
+        'is_zero_fixes': (zero_fixes_reason is not None),
+        'zero_fixes_reason': zero_fixes_reason,
+        'overall_comparison': {
+            'before': before_html,
+            'after': after_html
+        }
     }
 
 
