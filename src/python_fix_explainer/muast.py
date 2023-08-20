@@ -506,13 +506,15 @@ class MutableAst:
             # TODO: actually use/record ops counter, and probably separately for each test and take the max?
             sys.settrace(make_op_counter(counter))
             exec(code_string, globals())
-            result = [ eval(test) for test in unit_test_strings ]
+            result = [ carefully_eval_test(test) for test in unit_test_strings ]
             sys.settrace(None)
             return result
         except Exception as e:  # noqa
+            # Since we are carefully evaluating each unit test (and catching exceptions),
+            # we only expect to end up here if the code string execution itself threw an exception.
+            # in this case, assume all tests failed.
             sys.settrace(None)
             print(e)
-            # TODO: only set to False those tests where the exception happened
             return [False for test in unit_test_strings]
 
     def test(self, unit_test_strings: List[str]):
@@ -770,3 +772,14 @@ def postorder(tree: MutableAst):
     for c in reversed(tree.children):
         yield from postorder(c)
     yield tree
+
+
+# Utility function for evaluating expressions which may throw exceptions.
+# Intended for unit test expressions which return a boolean value (pass/fail unit test)
+# If exception is thrown, return False because test failed.
+def carefully_eval_test(expr_string):
+    try:
+        return eval(expr_string)
+    except Exception as e:  # noqa
+        return False
+
