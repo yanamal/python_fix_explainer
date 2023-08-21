@@ -231,3 +231,13 @@ def has_failing_unit_test(solutions: List[str], tests: List[str]):
             if not result:
                 return s_i, r_i
     return False
+
+
+# Similar to has_failing_unit_test, but actually return all results of each unit test on each solution.
+def test_all(solutions: List[str], tests: List[str]):
+    all_results = []
+    for s in solutions:
+        s_tree = muast.MutableAst(ast.parse(s))
+        test_results = s_tree.test(tests)
+        all_results.append(test_results)
+    return all_results

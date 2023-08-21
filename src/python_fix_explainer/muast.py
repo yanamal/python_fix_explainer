@@ -504,6 +504,8 @@ class MutableAst:
             code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
             counter = OpsCounter()
             # TODO: actually use/record ops counter, and probably separately for each test and take the max?
+            # TODO: save old tracer(e.g. debugger) and re-institute it instead of setting to None
+            #  (as in get_runtime_effects.run_test_timed)
             sys.settrace(make_op_counter(counter))
             exec(code_string, globals())
             result = [ carefully_eval_test(test) for test in unit_test_strings ]
