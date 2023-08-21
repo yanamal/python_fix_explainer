@@ -79,6 +79,7 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
 
         fix_effects = []
         best_tests = []
+        # calculate effect of each remaining fix (independent of others)
         for fix in remaining_fixes:
             # get subset of edit script for just applying this fix
             just_this_fix = remaining_edit_script.filtered_copy(lambda e: e.short_string not in fix)
@@ -91,6 +92,7 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
             fix_effects.append(fix_effect)
             best_tests.append(problem_unit_tests[best_test_i])
 
+        # apply fix(es) wit the best available effect
         best_effect = max(fix_effects)  # best possible fix effect achived with given base code and fixes
         applied_fixes = []
         for fix, effect, test in zip(remaining_fixes, fix_effects, best_tests):
@@ -103,6 +105,11 @@ def generate_fix_sequence(incorrect_tree: muast.MutableAst,
 
         for fix in applied_fixes:
             remaining_fixes.remove(fix)
+
+        # Check whether the current tree already represents correct code (in that case, skip any remaining fixes)
+        # TODO: possibly do this for every fix, not every "batch" with same quality? more messy, and maybe no benefit?
+        if all(base_tree.test(problem_unit_tests)):
+            break
 
     logging.info(
         f'Generating fix sequence of {len(ordered_fixes)} took {time.time() - start_generate_sequence} seconds')

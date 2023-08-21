@@ -468,6 +468,8 @@ class MutableAst:
         # return list of children in key-alphabetical order (for comparisons by APTED)
         return [ self.children_dict[c_key] for c_key in sorted(self.children_dict.keys()) ]
 
+    # TODO: strings with backslashes in them get double-escaped on the way out (parsed from ast back to code string).
+    #  Seems to be happening when parsing the AST both with ast.dump and with astor.
     def __str__(self):
         if self.isList or self.isLiteral:
             return self.name
