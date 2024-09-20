@@ -68,7 +68,9 @@ def filter_unmapped_ops(op_trace: get_runtime_effects.TracedRunResult, node_trac
 # and represents a canonical expected/correct way the code should run.
 @total_ordering
 class RuntimeComparison:
-    def __init__(self, source_tree: muast.MutableAst, dest_tree: muast.MutableAst, test_string: str):
+    def __init__(self,
+                 source_tree: muast.MutableAst, dest_tree: muast.MutableAst, test_string: str,
+                 prepend_code: str = '', append_code: str = ''):
         start_comparison = time.time()
 
         # Store basic info
@@ -83,8 +85,10 @@ class RuntimeComparison:
         # TODO: compute some of these things (e.g. dest static mappings)
         #  less often than once per unit test run per candidate source_tree?
         # compute and store traces of running unit test for each version
-        self.source_trace = get_runtime_effects.run_test(self.source_code, test_string)
-        self.dest_trace = get_runtime_effects.run_test(self.dest_code, test_string)
+        self.source_trace = get_runtime_effects.run_test(
+            self.source_code, test_string, prepend_code=prepend_code, append_code=append_code)
+        self.dest_trace = get_runtime_effects.run_test(
+            self.dest_code, test_string, prepend_code=prepend_code, append_code=append_code)
 
         # TODO: truncate trace (before comparing to other trace) if it ended in timeout?
         #  nobody wants to see thousands of ops.
@@ -268,6 +272,7 @@ class RuntimeComparison:
 
 
 class Effect(Enum):
+    BREAKS = 'breaks the code'
     WORSE = 'worse'
     SAME = 'the same'
     MIXED = 'mixed'
@@ -292,14 +297,18 @@ class FixEffectComparison:
                   before_fix: muast.MutableAst,
                   after_fix: muast.MutableAst,
                   fully_correct: muast.MutableAst,
-                  test_string: str):
+                  test_string: str,
+                  prepend_code: str = '',
+                  append_code: str = ''):
         start_fix_effect = time.time()
         self.before_flat_bytecode = map_bytecode.FlatOpsList(before_fix)
         self.after_flat_bytecode = map_bytecode.FlatOpsList(after_fix)
 
         #### Compare each intermediate version (before and after the fix) to fully corrected version ####
-        self.before_to_correct = RuntimeComparison(before_fix, fully_correct, test_string)
-        self.after_to_correct = RuntimeComparison(after_fix, fully_correct, test_string)
+        self.before_to_correct = RuntimeComparison(
+            before_fix, fully_correct, test_string, prepend_code=prepend_code, append_code=append_code)
+        self.after_to_correct = RuntimeComparison(
+            after_fix, fully_correct, test_string, prepend_code=prepend_code, append_code=append_code)
 
         self.summary_string = self.before_to_correct.describe_improvement_or_regression(self.after_to_correct)
         if self.before_to_correct >= self.after_to_correct:
@@ -320,7 +329,8 @@ class FixEffectComparison:
         self.notable_ops_in_synced = {}  # This will get filled in when creating synced trace
 
         #### Directly compare runtime traces of code before and after the fix, to generate synced trace. ####
-        self.before_to_after = RuntimeComparison(before_fix, after_fix, test_string)
+        self.before_to_after = RuntimeComparison(
+            before_fix, after_fix, test_string, prepend_code=prepend_code, append_code=append_code)
 
         # Get the individual (node-based) trace info for before & after versions
         self.before_node_trace = [
@@ -363,15 +373,18 @@ class FixEffectComparison:
                     self.synced_node_trace.append({
                         'before': None,
                         'after': self.after_node_trace[after_i],
+                        'value_mismatch': False,
                         'value_matches': False
                     })
                     after_i_to_synced[after_i] = synced_i
                     after_i += 1
                 synced_i = len(self.synced_node_trace)
+                value_matches = self.before_to_after.source_runtime_mapping_to_dest[before_i].value_matches
                 self.synced_node_trace.append({
                         'before': self.before_node_trace[before_i],
                         'after': self.after_node_trace[after_i],
-                        'value_matches': self.before_to_after.source_runtime_mapping_to_dest[before_i].value_matches
+                        'value_mismatch': not value_matches,  # Explicit mismatch (both values exist, are different)
+                        'value_matches': value_matches
                 })
                 after_i_to_synced[after_i] = synced_i
                 before_i_to_synced[before_i] = synced_i
@@ -381,6 +394,7 @@ class FixEffectComparison:
                 self.synced_node_trace.append({
                     'before': self.before_node_trace[before_i],
                     'after': None,
+                    'value_mismatch': False,
                     'value_matches': False
                 })
                 before_i_to_synced[before_i] = synced_i
@@ -390,6 +404,7 @@ class FixEffectComparison:
             self.synced_node_trace.append({
                 'before': None,
                 'after': self.after_node_trace[after_i],
+                'value_mismatch': False,
                 'value_matches': False
             })
             after_i_to_synced[after_i] = synced_i

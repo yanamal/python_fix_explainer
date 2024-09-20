@@ -152,7 +152,7 @@ class EditScript:
     def apply(self, source_tree: muast.MutableAst):
         # apply this edit script to a copy of the given source tree (does not mutate the source)
         # (which may be somewhat different from the original source tree, e.g. it could be already partially edited)
-        dest_tree = copy.deepcopy(source_tree)
+        dest_tree: muast.MutableAst = copy.deepcopy(source_tree)
         additional_nodes_copy = copy.deepcopy(self.additional_nodes)
         index_to_node = dest_tree.gen_index_to_node(additional_nodes_copy)
         for edit in self.edits:
@@ -179,6 +179,15 @@ class EditScript:
         #  may result in a nonsensical insert anyway (e.g. insert at the top instead of after previous line)
         #  Another option is to make more elaborate logic about where to insert,
         #  e.g. have before/after be *lists* of available preceding/following neighbors
+
+        # TODO: insert/delete/move from list of "right" operands in a compare node
+        #   depends on renames of that compare node (renames in MutableAST include adding/deleting/changing operators)
+        #  and also depends on other insert/delete/removes from same list
+        # This is because length of the two lists (operators and "right" operands - i.e. all but the first)
+        # are assumed to be the same.
+        # for example, if one "right" operand gets inserted, but operators don't change,
+        # then there must be another operand that gets deleted. We should do all of those together
+        # so the length matches at the end.
 
         # Figure out which steps in a (valid) edit script depend on other steps being present
         # (can't remove a step with dependencies if the dependencies stay in)

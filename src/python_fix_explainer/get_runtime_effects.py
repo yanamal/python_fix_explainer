@@ -31,7 +31,9 @@ class OpInstrumentationData:
 
 
 # set of instructions which should not be instrumented (by popping and pushing stack after the instruction)
-do_not_instrument = {'LOAD_METHOD', 'LOAD_BUILD_CLASS', 'SETUP_WITH', 'LOAD_CONST', 'LOAD_FAST'}
+do_not_instrument = {'LOAD_METHOD', 'LOAD_BUILD_CLASS', 'SETUP_WITH',
+                     # 'CALL_METHOD', 'STORE_FAST',  # TODO: these break request 354
+                     'LOAD_CONST', 'LOAD_FAST'}
 # LOAD_METHOD and LOAD_BUILD_CLASS seem to break everything, maybe due to scope issues
 #   ('variable referenced before assignment' exception for stack-tracking variable, and/or negative stack size)
 # the results of LOAD_CONST and LOAD_FAST will already be picked up by the tracer without additional instrumentation.
@@ -118,7 +120,7 @@ def instrument_code_obj(py_code_obj: types.CodeType, instrumented_to_orig: Dict[
         # and inject it into byte_code_instructions:
         to_inject = []
         if push_pop_effect.num_pushed > 0 and (instr.name not in do_not_instrument):
-            # print(instr.name, instr)
+            # print(instr.name, instr, push_pop_effect.num_pushed)
             for j in range(push_pop_effect.num_pushed):
                 # for each value newly pushed onto the stack, add instructions to be injected:
                 # (prepend instruction) at the beginning, pop it off the stack
@@ -126,6 +128,7 @@ def instrument_code_obj(py_code_obj: types.CodeType, instrumented_to_orig: Dict[
                 # (append instruction) at the end, push it back onto the stack
                 to_inject.append(Instr('LOAD_FAST', f'stack_contents_{j}'))
             # Inject all instructions after instruction i:
+            # print(to_inject)
             for inject_instr in reversed(to_inject):
                 byte_code_instructions.insert(i + 1, inject_instr)
 
@@ -141,6 +144,7 @@ def instrument_code_obj(py_code_obj: types.CodeType, instrumented_to_orig: Dict[
             orig_op_info = op_info_to_prepend + orig_op_info
 
     # convert the instrumented Bytecode object back to an actual executable python code object
+    # print(byte_code_instructions)
     instrumented_py_code: types.CodeType = byte_code_instructions.to_code()
     disassembled_instrumented = dis.get_instructions(instrumented_py_code)
     # the result of dis.get_instructions is a generator, which unlike an actual list of instructions,
@@ -201,6 +205,8 @@ class TracedOp:
 # a simple class wrapper for tracking and interpreting instrumented code
 class Instrumented_Bytecode:
     def __init__(self, code_str):
+        # print('instrumenting code:')
+        # print(code_str)
         self.original_code_obj = compile(code_str, '<string>', 'exec')
         self.instrumented_code_obj, self.instrumented_to_orig = instrument_code_obj(self.original_code_obj)
         # self.runtime_ops_list will keep the list of ops that were executed(and values pushed on stack)
@@ -216,7 +222,17 @@ class Instrumented_Bytecode:
         # if type(value) in bytecode_metadata.unpickleable:
         #     # if the value is unpickleable, record a dummy string instead
         #     # value = '<unpickleable object>'
-        value = str(value)
+
+        # noinspection PyBroadException
+        try:
+            # a circular dependency edge case happens when the __str__ method in a student-defined class is overridden,
+            # and the instrumentation tries to get the value of "self" during __init__,
+            # when not everything has been initialized yet (including variables that are being used in __str__)
+            # In that case, and any other cases where for some reason conversion to a string fails,
+            # we try to just document the type of the value.
+            value = str(value)
+        except Exception as e:
+            value = str(type(value))
         value = re.sub(r'<(.*) at .*>', r'<\1>', value)  # cut off things like memory addresses
         last_op = self.runtime_ops_list[-1]
         last_op.pushed_values.append(value)
@@ -290,7 +306,7 @@ class TracedRunResult:
 # Instrument and run the code in the string, then evaluate the expression in the test string
 # Typically, the test string checks that the actual result of executing some function matches the expected result,
 # e.g. "secondHalf([1,2,3,4]) == [3,4]"
-def run_test_timed(code: str, test_string: str):
+def run_test_timed(code: str, test_string: str, prepend_code: str = '', append_code: str = ''):
     # instrument studend code string for tracing.
     # (must do it in this function, because we can't pickle code objects for passing through multiprocessing)
     # TODO: we no longer need to do it here, because no longer using multiprocessing.
@@ -304,10 +320,15 @@ def run_test_timed(code: str, test_string: str):
         #  (in that case, go back to only instrumenting - and compiling in this way - student code
         #  and eval()ing the unit test after the student code runs)
         # try running and tracing the code together with the unit test
-        old_trace = sys.gettrace()
+        old_trace = sys.gettrace()  # TODO: do this outside of try, and use old_trace in Exception handling?
+
+        exec(prepend_code, globals())
+
         sys.settrace(make_ops_tracer(instr_code))
         exec(instr_code.instrumented_code_obj, globals())
         sys.settrace(old_trace)
+
+        exec(append_code, globals())
         unit_test_result = eval(test_string)  # now actually record the unit test result by re-running the unit test
 
         return TracedRunResult(
@@ -321,13 +342,15 @@ def run_test_timed(code: str, test_string: str):
         exception_text = str(e)
         # modify the ops list to capture the exception - in this case, the op that caused the exception
         # will be the last op in the ops_list, and we add the exception as its value.
-        instr_code.runtime_ops_list[-1].pushed_values = [f'Exception: {exception_text}']
+        if len(instr_code.runtime_ops_list) > 0:
+            # sometimes there are no ops yet (e.g. when the exception is actually thrown by the "prefix" code.
+            instr_code.runtime_ops_list[-1].pushed_values = [f'Exception: {exception_text}']
         return TracedRunResult(eval_result=False, ops_list=instr_code.runtime_ops_list, run_outcome=exception_text)
 
 
-def run_test(code: str, test_string: str):
+def run_test(code: str, test_string: str, prepend_code: str = '', append_code: str = ''):
     start_run = time.time()
-    result = run_test_timed(code, test_string)
+    result = run_test_timed(code, test_string, prepend_code=prepend_code, append_code=append_code)
     logging.info(f'Trace consisted of {len(result.ops_list)} non-instrumentation ops')
     logging.info(f'Running instrumented unit test took {time.time() - start_run} seconds')
     return result

@@ -23,6 +23,8 @@ import ast
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 from dataclasses import dataclass
 
+from .doctest_data import run_doctest_test
+
 
 # Utility - canonicalize code
 def canonical_code(code_str):
@@ -334,7 +336,7 @@ class MutableAst:
     # (3) makes structural tweaks to make AST comparison give more sensible results,
     # (4) allows for changing the AST (and makes corresponding changes to the underlying Python AST)
     # (5) allows for execution of a manipulated AST
-    def __init__(self, py_ast, node_index=None, shallow=False, name=None, assign_depth=None):
+    def __init__(self, py_ast, node_index=None, shallow=False, name=None, assign_depth=None, isStatement=False):
         # a passed-in chunk of python AST could be one of three things:
         # (1) an actual AST node
         # (2) a 'leaf' literal - e.g. string representing the name of the variable
@@ -344,6 +346,7 @@ class MutableAst:
         # insert into 'middle of' list)
         self.isList = isinstance(py_ast, list)
         self.isLiteral = (not self.isList) and (not hasattr(py_ast, '_fields'))
+        self.isStatement = isStatement  # assume not; will get set by parent
 
         if self.isList:
             self.nodeType = 'NodeList'
@@ -376,6 +379,12 @@ class MutableAst:
                     continue
                 c_manip = MutableAst(c_ast, assign_depth=next_assign_depth)
                 c_manip.set_parent(self, c_key)
+
+                # children, descendants should be done - decide if they are statement nodes
+                if c_key == 'body':
+                    for body_child in c_manip.children:
+                        body_child.isStatement = True
+
                 self.children_dict[c_key] = c_manip
 
         if shallow:
@@ -500,7 +509,7 @@ class MutableAst:
         code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
         return exec(code_string, globals())  # not sure if exec actually returns anything
 
-    def test_timed(self, unit_test_strings: List[str]):
+    def test_timed(self, unit_test_strings: List[str], prepend_code: str = '', append_code: str = ''):
         # run a set of unit test strings after running the code in this AST.
         try:
             code_string = astor.to_source(self.ast, source_generator_class=CustomSourceGen)
@@ -508,9 +517,14 @@ class MutableAst:
             # TODO: actually use/record ops counter, and probably separately for each test and take the max?
             # TODO: save old tracer(e.g. debugger) and re-institute it instead of setting to None
             #  (as in get_runtime_effects.run_test_timed)
+            exec(prepend_code, globals())
             sys.settrace(make_op_counter(counter))
             exec(code_string, globals())
-            result = [ carefully_eval_test(test) for test in unit_test_strings ]
+            exec(append_code, globals())
+            # TODO: is it possible to stop counting ops for append_code?.. use specific "file" name that's not <string>?
+            #  (compile() the code first, use desired filename, then exec())
+            #  Or will it work to just run the tests outside of settrace? (it seems to in the instrumented code)
+            result = [ carefully_eval_test(test) for test in unit_test_strings ]  # TODO: what if tests mutate state?..
             sys.settrace(None)
             return result
         except Exception as e:  # noqa
@@ -518,12 +532,13 @@ class MutableAst:
             # we only expect to end up here if the code string execution itself threw an exception.
             # in this case, assume all tests failed.
             sys.settrace(None)
-            print(e)
+            # logging.debug('exception when running code:', e) # TODO: sometimes throws exceptions itself
+            # print(e)
             return [False for test in unit_test_strings]
 
-    def test(self, unit_test_strings: List[str]):
+    def test(self, unit_test_strings: List[str], prepend_code: str = '', append_code: str = ''):
         start_test = time.time()
-        result = self.test_timed(unit_test_strings)
+        result = self.test_timed(unit_test_strings, prepend_code=prepend_code, append_code=append_code)
         logging.info(f'Ran code and {len(unit_test_strings)} test(s) in {time.time() - start_test} seconds')
         return result
 
@@ -783,7 +798,8 @@ def postorder(tree: MutableAst):
 # If exception is thrown, return False because test failed.
 def carefully_eval_test(expr_string):
     try:
-        return eval(expr_string)
+        return eval(expr_string, globals())
     except Exception as e:  # noqa
+        # print(e)
         return False
 

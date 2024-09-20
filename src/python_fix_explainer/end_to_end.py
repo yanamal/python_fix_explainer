@@ -7,6 +7,8 @@ from . import muast
 from . import tree_to_html
 from . import runtime_comparison
 
+# TODO: this is old and probably out of date. remove?..
+
 student_code = '''
 def isEvenPositiveInt(n):
     if n % 2 == 0 and n > 0 and Type(n) == Type(int):

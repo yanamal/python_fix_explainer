@@ -76,8 +76,14 @@ def get_constant_pop_stack_effect(opname):
         'POP_JUMP_IF_TRUE': 1,
         'POP_JUMP_IF_FALSE': 1,
         'JUMP_IF_NOT_EXC_MATCH': 2,
-        'JUMP_IF_TRUE_OR_POP': 1,  # count looking at TOS as "pop" (and then push back)
-        'JUMP_IF_FALSE_OR_POP': 1,
+        # Note: JUMP_IF_TRUE_OR_POP and JUMP_IF_FALSE_OR_POP do not have a static stack effect.
+        # Depending on the branch, it may be 0 or -1.
+        # Since we are trying to use Python's static effect size as a starting point, in this case,
+        # it is safer to assume that these two ops do not push or pop anything, and ignore them.
+        # (They never push anything NEW onto the stack - they examine the top of stack and
+        # may or may not put it back on the top of the stack)
+        # 'JUMP_IF_TRUE_OR_POP': 1,  # count looking at TOS as "pop" (and then push back)
+        # 'JUMP_IF_FALSE_OR_POP': 1,
         'FOR_ITER': 1,
         'STORE_FAST': 1,
         'STORE_DEREF': 1,

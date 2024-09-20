@@ -10,7 +10,8 @@ from .gen_edit_script import EditScript, Edit, Action
 
 
 # Simplification step 1: find and undo edits that just rename variables
-def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
+def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript,
+                         prepend_code: str = '', append_code: str = ''):
     for old_name, new_name in edit_script.var_renames.items():
         # for each variable name pair
 
@@ -31,7 +32,7 @@ def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit
 
         # Try out the new edit script
         tree_without_rename = without_rename.apply(source_tree)
-        if False not in tree_without_rename.test(problem_tests):
+        if False not in tree_without_rename.test(problem_tests, prepend_code=prepend_code, append_code=append_code):
             # if all unit tests pass in this new version of the tree
             logging.debug(
                 f'Simplified: removed {len(edit_script.edits) - len(without_rename.edits)} '
@@ -48,7 +49,8 @@ def simplify_var_renames(source_tree: MutableAst, problem_tests: List[str], edit
 # Simplification step 2: try removing each block of mutually-dependent edits to see if code is still correct without it.
 # Repeat until no more blocks can be removed.
 def simplify_dependent_blocks(
-        source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
+        source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript,
+        prepend_code: str = '', append_code: str = ''):
     potential_removals = edit_script.dependent_blocks
 
     # sort in descending order based on earliest edit in the block.
@@ -71,11 +73,11 @@ def simplify_dependent_blocks(
             def is_in_remove_set(e: Edit):
                 return e.short_string in remove_set
 
-            edit_script.filtered_copy(is_in_remove_set)
             without_removed = edit_script.filtered_copy(is_in_remove_set)
             tree_without_removed = without_removed.apply(source_tree)
             if len(without_removed.edits) < len(edit_script.edits) and \
-                    False not in tree_without_removed.test(problem_tests):
+                    False not in tree_without_removed.test(problem_tests,
+                                                           prepend_code=prepend_code, append_code=append_code):
                 edit_script = without_removed
                 keep_going = True
             else:
@@ -90,18 +92,20 @@ def simplify_dependent_blocks(
     return edit_script, potential_removals
 
 
-def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript):
+def simplify_edit_script(source_tree: MutableAst, problem_tests: List[str], edit_script: EditScript,
+                         prepend_code: str = '', append_code: str = ''):
     start_simplify = time.time()
     start_len = len(edit_script.edits)
     # Simplify edit script by trying to remove blocks of connected dependencies
 
     ### Try skipping variable renames:
-    edit_script = simplify_var_renames(source_tree, problem_tests, edit_script)
+    edit_script = simplify_var_renames(source_tree, problem_tests, edit_script,
+                                       prepend_code=prepend_code, append_code=append_code)
 
     ### Get connected components of 'dependent' edits
     # TODO: use runtime improvement information to simplify dependent blocks?..
     edit_script, remaining_blocks = simplify_dependent_blocks(
-        source_tree, problem_tests, edit_script)
+        source_tree, problem_tests, edit_script, prepend_code=prepend_code, append_code=append_code)
 
     for b in remaining_blocks:
         logging.debug('block start:')

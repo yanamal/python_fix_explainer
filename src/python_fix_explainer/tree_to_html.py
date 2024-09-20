@@ -34,24 +34,26 @@ def extract_code_bit(code_str, pos):
 
 def get_f_string_exprs(f_string_str):
     f_contents_match = re.match('f["\'](.*)["\']', f_string_str)
-    f_contents_groups = f_contents_match.groups()
-    if len(f_contents_groups) > 0:
-        # offset from start of whole expression (vs. the inside of the string)
-        f_contents_offset = f_contents_match.start(1)
+    if f_contents_match:
+        f_contents_groups = f_contents_match.groups()
+        if len(f_contents_groups) > 0:
+            # offset from start of whole expression (vs. the inside of the string)
+            f_contents_offset = f_contents_match.start(1)
 
-        f_contents = f_contents_groups[0]
-        formatted_values = [g.span() for g in re.finditer('{[^}]*}', f_contents)]
-        all_children = []  # list of all expected top-level children of the JoinedStr node in the AST
-        cursor = 0
-        for start, end in formatted_values:
-            if start > cursor:
-                all_children.append((cursor, start, 'Str'))
-            all_children.append((start+1, end-1, 'FormattedValue'))
-            cursor = end
-        if cursor < len(f_contents):
-            all_children.append((cursor, len(f_contents), 'Str'))
-        return [(start+f_contents_offset, end+f_contents_offset, expected_type)
-                for (start, end, expected_type) in all_children]
+            f_contents = f_contents_groups[0]
+            formatted_values = [g.span() for g in re.finditer('{[^}]*}', f_contents)]
+            all_children = []  # list of all expected top-level children of the JoinedStr node in the AST
+            cursor = 0
+            for start, end in formatted_values:
+                if start > cursor:
+                    all_children.append((cursor, start, 'Str'))
+                all_children.append((start+1, end-1, 'FormattedValue'))
+                cursor = end
+            if cursor < len(f_contents):
+                all_children.append((cursor, len(f_contents), 'Str'))
+            return [(start+f_contents_offset, end+f_contents_offset, expected_type)
+                    for (start, end, expected_type) in all_children]
+    return []
 
 
 # given a MutableAst object which represents a complete bit of code,
@@ -63,7 +65,7 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     # we need to start from scratch:
     # Regenerate a fresh version of the text representation from the MutableAst, then generate the ast from that,
     # and a new MutableAst from the python ast.
-    # Then we try our best to match the nodes of the original and new tree to each other nd walk through them
+    # Then we try our best to match the nodes of the original and new tree to each other and walk through them
     # together, to get the id/parent/etc. data from the original, and the text positions from the new one.
 
     node_to_edits = defaultdict(list)
@@ -72,7 +74,10 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
             node_to_edits[edit.node_id].append(edit)
 
     # TODO: why didn't str(tree) work?
+    # TODO: if compile fails, return flat str?
+
     txt = tree.to_compileable_str()
+    # print(txt)
     py_ast = ast.parse(txt)
     atok = asttokens.ASTTokens(str(txt), tree=py_ast)
     new_tree = MutableAst(py_ast)
@@ -85,6 +90,7 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
     #  e.g. by default return statement is not wrapped in Expr, but it is not wrong to have it in an Expr.
     #  and tree which came from edit script may retain Expr for shorter edit script.
     # TODO: maybe just use a single pass of APTED? shouldn't need to move subtrees...
+    #  Especially since this can somehow result in thousands of calls to apted?..
     new_index_to_node = new_tree.gen_index_to_node()
     mapping = generate_mapping(tree, new_tree)
     # draw_comparison(tree, new_tree, mapping, 'tree_to_html_map.dot')
@@ -111,7 +117,7 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
                     f_string = extract_code_bit(txt, ((start_lineno, start_col_offset), (end_lineno, end_col_offset)))
                     for (start, end, expected_type), child_node in \
                             zip(get_f_string_exprs(f_string), orig_node.children_dict['values'].children):
-                        print(f_string[start:end], expected_type, child_node)
+                        # print(f_string[start:end], expected_type, child_node)
                         # TODO: make it correct for multiline f strings
                         inferred_positions_for_lost_nodes[child_node.index] = \
                             ((start_lineno, start_col_offset+start), (start_lineno, start_col_offset+end))
@@ -121,10 +127,10 @@ def gen_annotated_html(tree: MutableAst, id_prefix='', edit_script: EditScript =
                     if orig_node.index in inferred_positions_for_lost_nodes:
                         (start_lineno, start_col_offset), (end_lineno, end_col_offset) = \
                             inferred_positions_for_lost_nodes[orig_node.index]
-                        logging.info(f'Using inferred position for node: {orig_node.name}')
+                        # logging.info(f'Using inferred position for node: {orig_node.name}')
                     else:
                         # couldn't find position. place this node at the beginning of parent node.
-                        logging.warning(f'Couldn\'t find position for node: {orig_node.name}')
+                        # logging.warning(f'Couldn\'t find position for node: {orig_node.name}')
 
                         p = orig_node.parent
                         while p.isList:
