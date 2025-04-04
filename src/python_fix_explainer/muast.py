@@ -183,7 +183,7 @@ class RuntimeSourceGen(CustomSourceGen):
             if len(else_) == 1 and isinstance(else_[0], ast.If):
                 node = else_[0]
                 if not node.test:
-                    node.test = ast.NameConstant(value=False)
+                    node.test = ast.Name(id=self.gen_dummy_name(), ctx=ast.Load())
                 cg.set_precedence(node, node.test)
                 self.write(self.newline, 'elif ', node.test, ':')
                 self.body(node.body)

@@ -216,7 +216,7 @@ def naive_class_function_mapping(source_tree: MutableAst, dest_tree: MutableAst,
     return partial_mapping
 
 
-def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pass=True):
+def generate_mapping(source_tree: MutableAst, dest_tree: MutableAst, do_naive_pass=False):
     # generate mapping between the two trees, represented as a set of pairs of mapped nodes.
     index_mapping = set()
     index_mapping.add((source_tree.index, dest_tree.index))  # add original roots to mapping right away
